@@ -11,6 +11,9 @@ def state_cal(t, z, F):
     I = 0.05 # moment of inertia of pendulum about its center of mass
     g = 9.81 # acceleration due to gravity
 
+    b_theta = 0.01 # damping coefficient for pendulum
+    b_x = 0.1     # damping coefficient for cart
+
     x = z[0]
     x_dot = z[1]
     theta = z[2]
@@ -19,8 +22,8 @@ def state_cal(t, z, F):
     A = np.array([[M + m, m*l*np.cos(theta)],
                   [m*l*np.cos(theta), I + m*l**2]])
 
-    b = np.array([F + m*l*(theta_dot**2)*np.sin(theta),
-                  m*g*l*np.sin(theta)])
+    b = np.array([F - b_x*x_dot + m*l*(theta_dot**2)*np.sin(theta),
+                  m*g*l*np.sin(theta)-b_theta*theta_dot])
     
     x_ddot, theta_ddot = np.linalg.solve(A, b)
 
