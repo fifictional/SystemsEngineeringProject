@@ -2,15 +2,15 @@ import numpy as np
 
 class LinearisedPendulumModel:
     # linearised model around upright position (for kalman filter)
-    def __init__(self, dt=0.01):
-        self.M = 1.0
-        self.m = 0.1
-        self.l = 0.3
-        self.g = 9.81
+    def __init__(self, dt=0.01, M=1.0, m=0.1, l=0.3, g=9.81, b_x=0.1, b_theta=0.01):
+        self.M = M
+        self.m = m
+        self.l = l
+        self.g = g
         self.dt = dt
 
-        self.b_x = 0.1
-        self.b_theta = 0.01
+        self.b_x = b_x
+        self.b_theta = b_theta
 
         self.M_total = self.M + self.m
 
