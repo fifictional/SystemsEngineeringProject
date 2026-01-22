@@ -7,7 +7,7 @@ from kalman_filter import Sensor, KalmanFilter
 # from controllers import PIDController, LQRController
 from visualisation import animate_with_kalman, plot_kalman_results
 
-def simulate_with_noise_and_kalman():
+def simulate_with_noise_and_kalman(M, m, l, I, g, b_theta, b_x):
     """Minimal working simulation with noise and Kalman filter"""
     dt = 0.02  # Slightly larger for faster simulation
     duration = 5  # Shorter duration for testing
@@ -49,7 +49,7 @@ def simulate_with_noise_and_kalman():
         ekf.predict(u=0)
         
         # Simulate true dynamics forward (simplified Euler for now)
-        dz = state_cal(current_time, true_state, F=0)
+        dz = state_cal(current_time, true_state, F=0, M=M, m=m, l=l, I=I, g=g, b_theta=b_theta, b_x=b_x)
         true_state = true_state + dz * dt
         
         current_time += dt
@@ -62,9 +62,18 @@ def simulate_with_noise_and_kalman():
 
 
 if __name__ == '__main__':
+    # Constants
+    M = 1   # mass of cart
+    m = 0.1 # mass of pendulum
+    l = 0.3 # length to pendulum center of mass
+    I = 0.05 # moment of inertia of pendulum about its center of mass
+    g = 9.81 # acceleration due to gravity
+
+    b_theta = 0.01 # damping coefficient for pendulum
+    b_x = 0.1     # damping coefficient for cart
 
     print("\nRunning simulation with sensor noise and Kalman filter...")
-    t, true_states, noisy_measurements, filtered_states = simulate_with_noise_and_kalman()
+    t, true_states, noisy_measurements, filtered_states = simulate_with_noise_and_kalman(M, m, l, I, g, b_theta, b_x)
     
     # plot results
     plot_kalman_results(t, true_states, noisy_measurements, filtered_states)
