@@ -1,87 +1,22 @@
+from demos import run_kalman_demo, run_linear_vs_nonlinear_demo
 import numpy as np
-import matplotlib.pyplot as plt
 
-# Import from your own modules
-from dynamics import state_cal, step_rk, solve_ivp
-from kalman_filter import Sensor, KalmanFilter
-# from controllers import PIDController, LQRController
-from visualisation import animate_with_kalman, plot_kalman_results
+if __name__ == "__main__":
+    params = {
+        "M": 1.0,
+        "m": 0.2,
+        "l": 0.3,
+        "I": 0.006,
+        "g": 9.81,
+        "b_x": 0.1,
+        "b_theta": 0.05
+    }
+    # print("Running Kalman filter demo...")
+    run_kalman_demo(params)
 
-def simulate_with_noise_and_kalman(M, m, l, I, g, b_theta, b_x):
-    """Minimal working simulation with noise and Kalman filter"""
-    dt = 0.02  # Slightly larger for faster simulation
-    duration = 5  # Shorter duration for testing
-    steps = int(duration/dt)
-    
-    # True state: start with 15° tilt from upright
-    true_state = np.array([0, 0, np.pi + np.deg2rad(15), 0])
-    
-    # Initialize
-    sensor = Sensor(angle_std=0.05, pos_std=0.01)  # More noise to see effect
-    ekf = KalmanFilter(dt)
-    
-    # Initialize EKF with wrong estimate (to see correction)
-    ekf.x = np.array([0.1, 0, np.pi + np.deg2rad(10), 0])  # 10° instead of 15°
-    
-    # Storage
-    time_points = np.zeros(steps)
-    true_states = np.zeros((steps, 4))
-    noisy_measurements = np.zeros((steps, 2))
-    filtered_states = np.zeros((steps, 4))
-    
-    current_time = 0
-    
-    for i in range(steps):
-        time_points[i] = current_time
-        true_states[i] = true_state.copy()
-        
-        # Get noisy measurement
-        noisy_measurement = sensor.add_noise(true_state[[0, 2]])
-        noisy_measurements[i] = noisy_measurement
-        
-        # Kalman filter update
-        ekf.update(noisy_measurement)
-        
-        # Store filtered state
-        filtered_states[i] = ekf.x.copy()
-        
-        # Kalman filter predict
-        ekf.predict(u=0)
-        
-        # Simulate true dynamics forward (simplified Euler for now)
-        dz = state_cal(current_time, true_state, F=0, M=M, m=m, l=l, I=I, g=g, b_theta=b_theta, b_x=b_x)
-        true_state = true_state + dz * dt
-        
-        current_time += dt
-    
-    return time_points, true_states, noisy_measurements, filtered_states
+    # z0 = [0, 0, np.deg2rad(5), 0]
+    # t, z_nl, z_lin = run_linear_vs_nonlinear_demo(params, z0)
 
+    # z0_large = [0, 0, np.deg2rad(20), 0]
+    # t2, z_nl2, z_lin2 = run_linear_vs_nonlinear_demo(params, z0_large)
 
-
-
-
-
-if __name__ == '__main__':
-    # Constants
-    M = 1   # mass of cart
-    m = 0.1 # mass of pendulum
-    l = 0.3 # length to pendulum center of mass
-    I = 0.05 # moment of inertia of pendulum about its center of mass
-    g = 9.81 # acceleration due to gravity
-
-    b_theta = 0.01 # damping coefficient for pendulum
-    b_x = 0.1     # damping coefficient for cart
-
-    cart_length = 0.3
-    cart_height = 0.15
-    radius_bob = 0.03
-
-    print("\nRunning simulation with sensor noise and Kalman filter...")
-    t, true_states, noisy_measurements, filtered_states = simulate_with_noise_and_kalman(M, m, l, I, g, b_theta, b_x)
-    
-    # plot results
-    plot_kalman_results(t, true_states, noisy_measurements, filtered_states)
-    
-    # animate comparison
-    print("\nAnimating true vs filtered states...")
-    ani = animate_with_kalman(t, true_states, filtered_states)

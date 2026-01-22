@@ -1,67 +1,92 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
-def state_cal(t, z, F, M, m, l, I, g, b_theta, b_x):
-    # Constants
-    rho = 1.225 # air density
-    Cd = 0.5 # drag coeff
-    A_pend = 0.01 # pendulum frontal area
-    A_cart = 0.02 # cart frontal area
+params = {
+    "M": 1.0,
+    "m": 0.2,
+    "l": 0.3,
+    "I": 0.006,
+    "g": 9.81,
+    "b_x": 0.1,
+    "b_theta": 0.05  
+}
 
-    x = z[0]
-    x_dot = z[1]
-    theta = z[2]
-    theta_dot = z[3]
+def nonlinear_dynamics(t, z, u, p):
+    x, x_dot, theta, theta_dot = z
 
-    # Air drag forces
-    F_drag_cart = -0.5 * rho * Cd * A_cart * abs(x_dot) * x_dot
-    F_drag_pend = -0.5 * rho * Cd * A_pend * abs(l*theta_dot) * (l*theta_dot)
+    M = p["M"]
+    m = p["m"]
+    l = p["l"]
+    I = p["I"]
+    g = p["g"]
+    b_x = p["b_x"]
+    b_theta = p["b_theta"]
 
-    A = np.array([[M + m, m*l*np.cos(theta)],
-                  [m*l*np.cos(theta), I + m*l**2]])
+    A = np.array([
+        [M + m, m * l * np.cos(theta)],
+        [m * l * np.cos(theta), I + m * l**2]
+    ])
 
-    b = np.array([F + F_drag_cart - b_x*x_dot + m*l*(theta_dot**2)*np.sin(theta),
-                  m*g*l*np.sin(theta)-b_theta*theta_dot])
-    
+    b = np.array([
+        u - b_x * x_dot + m * l * theta_dot**2 * np.sin(theta),
+        m * g * l * np.sin(theta) - b_theta * theta_dot
+    ])
+
     x_ddot, theta_ddot = np.linalg.solve(A, b)
 
-    # Computing state vectors
-    dz1 = x_dot
-    dz2 = x_ddot
-    dz3 = theta_dot
-    dz4 = theta_ddot
+    return np.array([
+        x_dot,
+        x_ddot,
+        theta_dot,
+        theta_ddot
+    ])
 
-    dz = np.array([dz1, dz2, dz3, dz4])
-    return dz
 
-def step_rk(t,dt,z, F):
-    # RK4 Method
-    f = state_cal
-    k1 = f(t, z, F)
-    k2 = f(t + dt/2, z + dt/2*k1, F)
-    k3 = f(t + dt/2, z + dt/2*k2, F)
-    k4 = f(t + dt,   z + dt*k3, F)
+def linearised_state_space(p):
+    M = p["M"]
+    m = p["m"]
+    l = p["l"]
+    I = p["I"]
+    g = p["g"]
 
-    znext = z + dt/6*(k1 + 2*k2 + 2*k3 + k4)
-    return znext
+    denom = (I + m * l**2) * M
 
-def solve_ivp(t0, tmax, dt, z0, F=0):
-    # Set initial conditions
-    t = np.array([t0])
-    z = z0
+    A = np.array([
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+        [0,  m * g * l / M, 0, 0],
+        [0, (M + m) * g * l / denom, 0, 0]
+    ])
 
-    # Continue stepping until the end time is exceeded
-    n=0
-    while t[n] <= tmax:
-        # Increment by one time step and append to the time axis
-        t = np.append(t,t[-1]+dt)
+    B = np.array([
+        [0],
+        [0],
+        [1 / M],
+        [1 / denom]
+    ])
 
-        # Obtain next state vector using one step of RK method
-        znext = step_rk(t[n], dt, z[:,n], F)
-        
-        # Append to the solution
-        znext = znext[:,np.newaxis]
-        z = np.append(z,znext,axis=1)
-        
-        n = n+1
-    
+    return A, B
+
+
+def linearised_dynamics(t, z, u, A, B):
+    return A @ z + (B.flatten() * u)
+
+
+def rk4_step(f, t, z, dt, u, *args):
+    k1 = f(t, z, u, *args)
+    k2 = f(t + dt/2, z + dt/2 * k1, u, *args)
+    k3 = f(t + dt/2, z + dt/2 * k2, u, *args)
+    k4 = f(t + dt, z + dt * k3, u, *args)
+    return z + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+
+def simulate(f, z0, t0, tf, dt, u, *args):
+    t = np.arange(t0, tf, dt)
+    z = np.zeros((len(z0), len(t)))
+    z[:, 0] = z0
+
+    for k in range(len(t) - 1):
+        z[:, k+1] = rk4_step(f, t[k], z[:, k], dt, u, *args)
+
     return t, z
+
