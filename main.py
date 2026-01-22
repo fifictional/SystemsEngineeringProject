@@ -72,6 +72,10 @@ if __name__ == '__main__':
     b_theta = 0.01 # damping coefficient for pendulum
     b_x = 0.1     # damping coefficient for cart
 
+    cart_length = 0.3
+    cart_height = 0.15
+    radius_bob = 0.03
+
     print("\nRunning simulation with sensor noise and Kalman filter...")
     t, true_states, noisy_measurements, filtered_states = simulate_with_noise_and_kalman(M, m, l, I, g, b_theta, b_x)
     
