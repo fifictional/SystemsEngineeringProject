@@ -1,16 +1,7 @@
 import numpy as np
 
-def state_cal(t, z, F):
+def state_cal(t, z, F, M, m, l, I, g, b_theta, b_x):
     # Constants
-    M = 1   # mass of cart
-    m = 0.1 # mass of pendulum
-    l = 0.3 # length to pendulum center of mass
-    I = 0.05 # moment of inertia of pendulum about its center of mass
-    g = 9.81 # acceleration due to gravity
-
-    b_theta = 0.01 # damping coefficient for pendulum
-    b_x = 0.1     # damping coefficient for cart
-
     rho = 1.225 # air density
     Cd = 0.5 # drag coeff
     A_pend = 0.01 # pendulum frontal area
