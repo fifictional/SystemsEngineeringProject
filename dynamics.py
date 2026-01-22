@@ -48,21 +48,23 @@ def linearised_state_space(p):
     l = p["l"]
     I = p["I"]
     g = p["g"]
+    b_x = p["b_x"]     
+    b_theta = p["b_theta"] 
 
-    denom = (I + m * l**2) * M
+    denom = (M + m) * (I + m * l**2) - (m * l)**2
 
     A = np.array([
-        [0, 0, 1, 0],
+        [0, 1, 0, 0],
+        [0, -b_x*(I + m*l**2)/denom, (m**2 * g * l**2)/denom, b_theta*m*l/denom],
         [0, 0, 0, 1],
-        [0,  m * g * l / M, 0, 0],
-        [0, (M + m) * g * l / denom, 0, 0]
+        [0, b_x*m*l/denom, m*g*l*(M + m)/denom, -b_theta*(M + m)/denom]
     ])
 
     B = np.array([
         [0],
+        [(I + m*l**2)/denom],
         [0],
-        [1 / M],
-        [1 / denom]
+        [m*l/denom]
     ])
 
     return A, B
