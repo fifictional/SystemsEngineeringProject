@@ -15,6 +15,9 @@ if __name__ == "__main__":
     # run_kalman_demo(params)
 
     z0 = [0, 0, np.deg2rad(5), 0]
+    
+    kalman_demo_PID(params, z0)
+    
     t, z_nl, z_lin = run_linear_vs_nonlinear_demo(params, z0)
 
     z0_large = [0, 0, np.deg2rad(20), 0]
