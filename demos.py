@@ -2,6 +2,8 @@ import numpy as np
 from dynamics import nonlinear_dynamics, simulate, linearised_dynamics, linearised_state_space
 from kalman_filter import Sensor, KalmanFilter
 from visualisation import animate_with_kalman, plot_kalman_results
+import matplotlib.pyplot as plt
+
 
 def run_kalman_demo(params):
     dt = 0.02
@@ -74,3 +76,8 @@ def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True)
         plt.show()
 
     return t, z_nl, z_lin
+
+
+
+
+
