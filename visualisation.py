@@ -119,3 +119,12 @@ def plot_kalman_results(t, true_states, noisy_measurements, filtered_states):
     print(f"Final angle error: {final_angle_error:.2f}°")
     print(f"Final position error: {final_pos_error*100:.1f} cm")
     print(f"Noise reduction (angle): {np.std(noisy_angles)/np.std(true_angles-filtered_angles):.1f}x")
+
+def plot_pid_performance(t, theta_error):
+    plt.figure()
+    plt.plot(t, np.rad2deg(theta_error))
+    plt.xlabel("Time (s)")
+    plt.ylabel("Angle error (deg)")
+    plt.title("Pendulum angle tracking error")
+    plt.grid()
+    plt.show()
