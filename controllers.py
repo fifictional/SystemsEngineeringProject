@@ -8,23 +8,11 @@ class LQRController:
 
         # Linearised system
         self.A, self.B = linearised_state_space(params)
-
-        # Default weights (reasonable for inverted pendulum)
-        if Q is None:
-            self.Q = np.diag([15.0, 0.8, 120.0, 1.2])
-        else:
-            self.Q = Q
-
-        if R is None:
-            self.R = np.array([[0.4]])
-        else:
-            self.R = R
-
+        self.Q = Q
+        self.R = R
         self.u_max = u_max
-
         # Solve CARE P
         self.P = solve_continuous_are(self.A, self.B, self.Q, self.R)
-
         # LQR gain K calculated by using CARE
         self.K = np.linalg.inv(self.R) @ self.B.T @ self.P
 
@@ -32,7 +20,6 @@ class LQRController:
         # compute control for feedback
         if x_ref is None:
             x_ref = np.zeros(4)
-
         # State error
         e = x_hat - x_ref
 
@@ -70,3 +57,4 @@ class PID_controller:
         self.prev_error = error
 
         return output
+
