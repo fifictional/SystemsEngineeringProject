@@ -122,25 +122,16 @@ def kalman_demo_PID(params, z0):
 
 def kalman_demo_LQR(params, z0):
     dt = 0.02
-    tf = 10
+    tf = 10.0
     t = np.arange(0, tf, dt)
     z = np.array(z0, dtype=float)
 
     sensor = Sensor(pos_std=0.01, angle_std=0.05)
     kf = KalmanFilter(dt)
-
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
 
-
-    Q = np.diag([
-        100.0,   # x       : cart position weight
-        10.0,    # x_dot   : cart velocity weight
-        1000.0,  # theta_tilde : pendulum angle deviation from 180 deg
-        50.0     # theta_dot   : pendulum angular velocity weight
-    ])
-
-    R = np.array([[10.0]])
-
+    Q = np.diag([10.0, 1.0, 200.0, 5.0])
+    R = np.array([[2.0]])
     u_max = 20.0
 
     lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
@@ -150,37 +141,42 @@ def kalman_demo_LQR(params, z0):
     filtered_states = np.zeros((len(t), 4))
     controls = np.zeros(len(t))
 
-    x_ref = np.zeros(4)
+    x_ref = np.zeros(4)  
+
+    def wrap_angle(angle):
+        return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
     for i, ti in enumerate(t):
         true_states[i] = z
 
-
+        # Measurement
         y = sensor.add_noise(z[[0, 2]])
         noisy_meas[i] = y
 
+        # KF update
         kf.update(y)
 
-    
+        # State for LQR: wrap angle to (-pi, pi]
         x_for_lqr = kf.x.copy()
-    
-        x_for_lqr[2] = x_for_lqr[2] + np.pi
+        x_for_lqr[2] = wrap_angle(x_for_lqr[2])
 
-      
-        u = -lqr.compute_control(x_for_lqr, x_ref)
+        # LQR control - NO extra negative sign here!
+        u = lqr.compute_control(x_for_lqr, x_ref)
         controls[i] = u
 
+        # KF predict
         kf.predict(u=u)
         filtered_states[i] = kf.x
 
+        # Propagate nonlinear system
         z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
 
-
+    # Angle error for plotting
     theta_true = true_states[:, 2]
-    theta_tilde_true = theta_true - np.pi   
-    plot_pid_performance(t, theta_tilde_true)
-
-
+    theta_wrapped = np.array([wrap_angle(th) for th in theta_true])
+    
+    # Plot angle error from upright (0 deg)
+    plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=np.zeros(4))
     animate_with_kalman(t, true_states, filtered_states)
 
     return t, true_states, noisy_meas, filtered_states, controls
