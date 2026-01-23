@@ -119,3 +119,68 @@ def kalman_demo_PID(params, z0):
     plot_pid_performance(t, theta_error)
     animate_with_kalman(t, true_states, filtered_states)
     return t, true_states, noisy_meas, filtered_states, controls, theta_error
+
+def kalman_demo_LQR(params, z0):
+    dt = 0.02
+    tf = 10
+    t = np.arange(0, tf, dt)
+    z = np.array(z0, dtype=float)
+
+    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    kf = KalmanFilter(dt)
+
+    kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
+
+
+    Q = np.diag([
+        100.0,   # x       : cart position weight
+        10.0,    # x_dot   : cart velocity weight
+        1000.0,  # theta_tilde : pendulum angle deviation from 180 deg
+        50.0     # theta_dot   : pendulum angular velocity weight
+    ])
+
+    R = np.array([[10.0]])
+
+    u_max = 20.0
+
+    lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
+
+    true_states = np.zeros((len(t), 4))
+    noisy_meas = np.zeros((len(t), 2))
+    filtered_states = np.zeros((len(t), 4))
+    controls = np.zeros(len(t))
+
+    x_ref = np.zeros(4)
+
+    for i, ti in enumerate(t):
+        true_states[i] = z
+
+
+        y = sensor.add_noise(z[[0, 2]])
+        noisy_meas[i] = y
+
+        kf.update(y)
+
+    
+        x_for_lqr = kf.x.copy()
+    
+        x_for_lqr[2] = x_for_lqr[2] + np.pi
+
+      
+        u = -lqr.compute_control(x_for_lqr, x_ref)
+        controls[i] = u
+
+        kf.predict(u=u)
+        filtered_states[i] = kf.x
+
+        z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
+
+
+    theta_true = true_states[:, 2]
+    theta_tilde_true = theta_true - np.pi   
+    plot_pid_performance(t, theta_tilde_true)
+
+
+    animate_with_kalman(t, true_states, filtered_states)
+
+    return t, true_states, noisy_meas, filtered_states, controls
