@@ -128,3 +128,60 @@ def plot_pid_performance(t, theta_error):
     plt.title("Pendulum angle tracking error")
     plt.grid()
     plt.show()
+
+def plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=None):
+    """
+    Plot LQR performance with proper angle wrapping to avoid 360° jumps
+    """
+    if x_ref is None:
+        x_ref = np.zeros(4)
+
+    def wrap_angle(angle):
+        """Wrap angle to (-pi, pi]"""
+        return (angle + np.pi) % (2.0 * np.pi) - np.pi
+    
+    def angle_diff(a, b):
+        """Smallest signed difference from b to a"""
+        return wrap_angle(a - b)
+
+    # Wrap angles
+    theta_true_wrapped = np.array([wrap_angle(th) for th in true_states[:, 2]])
+    theta_filt_wrapped = np.array([wrap_angle(th) for th in filtered_states[:, 2]])
+    
+    # Error with proper wrapping (avoid 360° jumps)
+    theta_error = np.array([angle_diff(theta_true_wrapped[i], x_ref[2]) 
+                           for i in range(len(t))])
+
+    plt.figure(figsize=(12, 8))
+
+    # Angles
+    plt.subplot(3, 1, 1)
+    plt.plot(t, np.rad2deg(theta_true_wrapped), 'b-', label="True", lw=1.5)
+    plt.plot(t, np.rad2deg(theta_filt_wrapped), 'r--', label="KF Est.", lw=1.2)
+    plt.axhline(y=np.rad2deg(x_ref[2]), color='g', ls=':', label="Target", lw=1.5)
+    plt.ylabel("Angle (deg)")
+    plt.title("LQR: Pendulum Angle")
+    plt.legend()
+    plt.grid(True)
+    plt.ylim([-30, 30])
+
+    # Error
+    plt.subplot(3, 1, 2)
+    plt.plot(t, np.rad2deg(theta_error), 'b-')
+    plt.axhline(y=0, color='k', ls='--', lw=0.8)
+    plt.ylabel("Error (deg)")
+    plt.title("LQR: Tracking Error (wrapped)")
+    plt.grid(True)
+    plt.ylim([-30, 30])
+
+    # Control
+    plt.subplot(3, 1, 3)
+    plt.plot(t, controls, 'r-')
+    plt.axhline(y=0, color='k', ls='--', lw=0.8)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Control (N)")
+    plt.title("LQR: Control Input")
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
