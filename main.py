@@ -23,5 +23,5 @@ if __name__ == "__main__":
     z0_large = [0, 0, np.deg2rad(20), 0]
     t2, z_nl2, z_lin2 = run_linear_vs_nonlinear_demo(params, z0_large)
 
-    z0 = np.array([0.0, 0.0, np.deg2rad(2.0), 0.0])
+    z0 = np.array([0.0, 0.0, np.deg2rad(15.0), 0.0])
     kalman_demo_LQR(params, z0)
