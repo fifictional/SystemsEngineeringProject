@@ -23,13 +23,17 @@ def nonlinear_dynamics(t, z, u, p):
     b_theta = p["b_theta"]
 
     A = np.array([
-        [M + m, m * l * np.cos(theta)],
-        [m * l * np.cos(theta), I + m * l**2]
+        [0, 1, 0, 0],
+        [0, -b_x*(I + m*l**2)/denom, -(m**2 * g * l**2)/denom, b_theta*m*l/denom],  
+        [0, 0, 0, 1],
+        [0, b_x*m*l/denom, m*g*l*(M + m)/denom, -b_theta*(M + m)/denom]
     ])
 
     b = np.array([
-        u - b_x * x_dot + m * l * theta_dot**2 * np.sin(theta),
-        m * g * l * np.sin(theta) - b_theta * theta_dot
+        [0],
+        [(I + m*l**2)/denom],  
+        [0],
+        [-m*l/denom] 
     ])
 
     x_ddot, theta_ddot = np.linalg.solve(A, b)
