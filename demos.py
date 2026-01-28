@@ -38,8 +38,8 @@ def run_kalman_demo(params):
         z = z + dz * dt
 
     noisy_states = true_states.copy()
-    noisy_states[:, 0] = noisy_meas[:, 0]  # noisy position
-    noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
+    # noisy_states[:, 0] = noisy_meas[:, 0]  # noisy position
+    # noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
 
     plot_kalman_results(t, true_states, noisy_meas, filtered_states)
     animate_with_kalman(t, noisy_states, filtered_states)
@@ -82,7 +82,7 @@ def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True)
     return t, z_nl, z_lin
 
 
-def kalman_demo_PID(params, z0):
+def kalman_demo_PID(params, z0, disturbance_force=0.0):
     dt = 0.02
     tf = 10
     t = np.arange(0, tf, dt)
@@ -97,18 +97,12 @@ def kalman_demo_PID(params, z0):
     noisy_meas = np.zeros((len(t), 2))
     filtered_states = np.zeros((len(t), 4))
     controls = np.zeros(len(t))
-    disturbances = np.zeros(len(t))  
 
     theta_ref = 0
     pid = PID_controller(Kp=55, Ki=0.001, Kd=1.5, N=10)
 
     for i, ti in enumerate(t):
         true_states[i] = z
-
-        disturbance = 0
-        if 3.0 < ti < 3.2:
-            disturbance = 10.0  # 10N impulse
-        disturbances[i] = disturbance
 
         y = sensor.add_noise(z[[0, 2]])
         noisy_meas[i] = y
@@ -118,54 +112,58 @@ def kalman_demo_PID(params, z0):
         error = theta_ref - theta_hat
         theta_error[i] = error
         u = -pid.step(theta_ref, theta_hat, dt)
-        controls[i] = u
 
+        # Apply disturbance at first step only
+        disturbance_steps = int(0.4 / dt) 
+        if i < disturbance_steps:
+            u += disturbance_force
+
+
+
+        controls[i] = u
         kf.predict(u=u)
         filtered_states[i] = kf.x
 
-        z = rk4_step(nonlinear_dynamics, ti, z, dt, u + disturbance, params)
+        z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
 
     noisy_states = true_states.copy()
-    noisy_states[:, 0] = noisy_meas[:, 0]
-    noisy_states[:, 2] = noisy_meas[:, 1]
+    # noisy_states[:, 0] = noisy_meas[:, 0]
+    # noisy_states[:, 2] = noisy_meas[:, 1]
 
-    # plot_pid_performance(t, theta_error)
     animate_with_kalman(
-    t,
-    noisy_states,
-    filtered_states,
-    controls=controls,
-    disturbances=None,
-    control_mode={"mode": "PID"},
-    params=params,
-    z0=z0
-)
+        t,
+        noisy_states,
+        filtered_states,
+        controls=controls,
+        disturbances=None,
+        control_mode={"mode": "PID"},
+        params=params,
+        z0=z0
+    )
 
-    
-    return t, true_states, noisy_meas, filtered_states, controls, theta_error
 
-def kalman_demo_LQR(params, z0):
+def kalman_demo_LQR(params, z0, disturbance_force=0.0):
     dt = 0.02
     tf = 10.0
     t = np.arange(0, tf, dt)
     z = np.array(z0, dtype=float)
 
+    # Sensor + Kalman filter
     sensor = Sensor(pos_std=0.01, angle_std=0.05)
     kf = KalmanFilter(dt)
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
 
+    # LQR setup
     Q = np.diag([10.0, 1.0, 200.0, 5.0])
     R = np.array([[2.0]])
     u_max = 20.0
-
     lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
+    x_ref = np.zeros(4)
 
     true_states = np.zeros((len(t), 4))
     noisy_meas = np.zeros((len(t), 2))
     filtered_states = np.zeros((len(t), 4))
     controls = np.zeros(len(t))
-
-    x_ref = np.zeros(4)  
 
     def wrap_angle(angle):
         return (angle + np.pi) % (2.0 * np.pi) - np.pi
@@ -176,44 +174,44 @@ def kalman_demo_LQR(params, z0):
         # Measurement
         y = sensor.add_noise(z[[0, 2]])
         noisy_meas[i] = y
-
-        # KF update
         kf.update(y)
 
-        # State for LQR: wrap angle to (-pi, pi]
+        # Wrap angle for LQR
         x_for_lqr = kf.x.copy()
         x_for_lqr[2] = wrap_angle(x_for_lqr[2])
 
-        # LQR control
+        # Compute control
         u = lqr.compute_control(x_for_lqr, x_ref)
+
+        # Apply disturbance on first step only
+        disturbance_steps = int(0.4 / dt) 
+        if i < disturbance_steps:
+            u += disturbance_force
+
+
+
         controls[i] = u
 
-        # KF predict
+        # Kalman predict
         kf.predict(u=u)
         filtered_states[i] = kf.x
 
-        # Propagate nonlinear system
+        # Propagate system
         z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
 
-    # Create reconstructed "noisy states" for visualization
+    # Reconstruct noisy states for visualization
     noisy_states = true_states.copy()
-    noisy_states[:, 0] = noisy_meas[:, 0]  # noisy position
-    noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
-    
-    # Plot comparison
-    # plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=np.zeros(4))
-    
-    # Animate: LEFT = noisy measurements, RIGHT = filtered estimate
+    # noisy_states[:, 0] = noisy_meas[:, 0]
+    # noisy_states[:, 2] = noisy_meas[:, 1]
+
+    # Animate
     animate_with_kalman(
-    t,
-    noisy_states,
-    filtered_states,
-    controls=controls,
-    disturbances=None,
-    control_mode={"mode": "LQR"},
-    params=params,
-    z0=z0
-)
-
-
-    return t, true_states, noisy_meas, filtered_states, controls
+        t,
+        noisy_states,
+        filtered_states,
+        controls=controls,
+        disturbances=None,
+        control_mode={"mode": "LQR"},
+        params=params,
+        z0=z0
+    )

@@ -3,10 +3,12 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle, Circle, FancyArrow
 from matplotlib.widgets import Button
-disturbance = {"force": 0.0}
+disturbance_force = 0.0
+from demos import *
 
 def animate_with_kalman(t, true_states, filtered_states,
                         controls=None, disturbances=None,control_mode=None, params=None, z0=None):
+    
     if control_mode is None:
         control_mode = {"mode": "LQR"}
     # FIGURE + GRID
@@ -43,19 +45,22 @@ def animate_with_kalman(t, true_states, filtered_states,
     ax_d1 = fig.add_axes([0.82, 0.86, 0.12, 0.04])
     ax_d2 = fig.add_axes([0.82, 0.81, 0.12, 0.04])
 
-    btn_push = Button(ax_d1, "+1 N Disturbance")
-    btn_pull = Button(ax_d2, "-1 N Disturbance")
+    btn_push = Button(ax_d1, "+15 N Disturbance")
+    btn_pull = Button(ax_d2, "-15 N Disturbance")
 
-    def apply_plus(event):
-        disturbance["force"] = 1.0
+    def apply_disturbance(force):
+        plt.close('all')  # close current figure
+        if control_mode["mode"] == "PID":
+            from demos import kalman_demo_PID
+            kalman_demo_PID(params, z0, disturbance_force=force)
+        else:
+            from demos import kalman_demo_LQR
+            kalman_demo_LQR(params, z0, disturbance_force=force)
 
-    def apply_minus(event):
-        disturbance["force"] = -1.0
+    btn_push.on_clicked(lambda event: apply_disturbance(15.0))
+    btn_pull.on_clicked(lambda event: apply_disturbance(-15.0))
 
-    btn_push.on_clicked(apply_plus)
-    btn_pull.on_clicked(apply_minus)
-
-
+        
 
     ax_pos   = fig.add_subplot(gs[1, 0])
     ax_angle = fig.add_subplot(gs[1, 1])
@@ -71,8 +76,8 @@ def animate_with_kalman(t, true_states, filtered_states,
 
 
     # ANIMATION AXES SETUP
-    for ax, title in [(ax_anim_true, "True system"),
-                      (ax_anim_filt, "Kalman filtered")]:
+    for ax, title in [(ax_anim_true, "Noiseless system"),
+                      (ax_anim_filt, "Noisy + Kalman filtered")]:
         ax.set_aspect("equal")
         ax.set_xlim(-3, 3)
         ax.set_ylim(-0.5, 1.5)
@@ -147,11 +152,6 @@ def animate_with_kalman(t, true_states, filtered_states,
 
     # UPDATE
     def update(i):
-        # Apply disturbance if any
-        if disturbance["force"] != 0 and controls is not None:
-            controls[i] += disturbance["force"]   # add disturbance to current control
-            disturbance["force"] *= 0.98          # decay over time
-
         # Draw pendulums
         draw_pendulum(cart_t, rod_t, bob_t, true_states[i])
         draw_pendulum(cart_f, rod_f, bob_f, filtered_states[i])
