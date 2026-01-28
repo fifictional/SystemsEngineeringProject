@@ -1,7 +1,7 @@
 import numpy as np
 from dynamics import nonlinear_dynamics, simulate, linearised_dynamics, linearised_state_space, rk4_step
 from kalman_filter import Sensor, KalmanFilter
-from visualisation import animate_with_kalman, plot_kalman_results, plot_pid_performance
+from visualisation import animate_with_kalman, plot_kalman_results, plot_pid_performance, plot_lqr_performance
 import matplotlib.pyplot as plt
 from controllers import *
 
@@ -29,7 +29,6 @@ def run_kalman_demo(params):
         y = sensor.add_noise(z[[0, 2]])
         noisy_meas[i] = y
 
-        # Kalman update + predict
         kf.update(y)
         filtered_states[i] = kf.x
         kf.predict(u=0)
@@ -38,12 +37,16 @@ def run_kalman_demo(params):
         dz = nonlinear_dynamics(ti, z, u=0, p=params)
         z = z + dz * dt
 
+    noisy_states = true_states.copy()
+    noisy_states[:, 0] = noisy_meas[:, 0]  # noisy position
+    noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
+
     plot_kalman_results(t, true_states, noisy_meas, filtered_states)
-    animate_with_kalman(t, true_states, filtered_states)
+    animate_with_kalman(t, noisy_states, filtered_states)
 
 
 def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True):
-    #  nonlinear
+    # nonlinear
     t, z_nl = simulate(nonlinear_dynamics, z0, 0, tf, dt, u, params)
 
     # linearised
@@ -54,8 +57,8 @@ def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True)
         import matplotlib.pyplot as plt
         plt.figure(figsize=(10,4))
         plt.subplot(1,2,1)
-        plt.plot(t, np.rad2deg(z_nl[2,:]), label="Nonlinear")
-        plt.plot(t, np.rad2deg(z_lin[2,:]), '--', label="Linearised")
+        plt.plot(t, np.rad2deg(z_nl[2,:]), label="Nonlinear", linewidth=2)
+        plt.plot(t, np.rad2deg(z_lin[2,:]), '--', label="Linearised", linewidth=2)
         plt.xlabel("Time (s)")
         plt.ylabel("Pendulum angle θ (deg)")
         plt.title("Pendulum angle comparison")
@@ -64,8 +67,8 @@ def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True)
         plt.grid()
 
         plt.subplot(1,2,2)
-        plt.plot(t, z_nl[0,:], label="Nonlinear")
-        plt.plot(t, z_lin[0,:], '--', label="Linearised")
+        plt.plot(t, z_nl[0,:], label="Nonlinear", linewidth=2)
+        plt.plot(t, z_lin[0,:], '--', label="Linearised", linewidth=2)
         plt.xlabel("Time (s)")
         plt.ylabel("Cart position x (m)")
         plt.title("Cart position comparison")
@@ -78,6 +81,7 @@ def run_linear_vs_nonlinear_demo(params, z0, u=0.0, dt=0.001, tf=5.0, plot=True)
 
     return t, z_nl, z_lin
 
+
 def kalman_demo_PID(params, z0):
     dt = 0.02
     tf = 10
@@ -88,18 +92,23 @@ def kalman_demo_PID(params, z0):
     kf = KalmanFilter(dt)
     kf.x = np.array([0.05, 0, np.deg2rad(10), 0])
 
-    # Just for tuning
     theta_error = np.zeros(len(t))
     true_states = np.zeros((len(t), 4))
     noisy_meas = np.zeros((len(t), 2))
     filtered_states = np.zeros((len(t), 4))
     controls = np.zeros(len(t))
+    disturbances = np.zeros(len(t))  
 
     theta_ref = 0
-    pid = PID_controller(Kp=70, Ki=0, Kd=22, N=10)
+    pid = PID_controller(Kp=55, Ki=0.001, Kd=1.5, N=10)
 
     for i, ti in enumerate(t):
         true_states[i] = z
+
+        disturbance = 0
+        if 3.0 < ti < 3.2:
+            disturbance = 10.0  # 10N impulse
+        disturbances[i] = disturbance
 
         y = sensor.add_noise(z[[0, 2]])
         noisy_meas[i] = y
@@ -114,10 +123,15 @@ def kalman_demo_PID(params, z0):
         kf.predict(u=u)
         filtered_states[i] = kf.x
 
-        z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
+        z = rk4_step(nonlinear_dynamics, ti, z, dt, u + disturbance, params)
+
+    noisy_states = true_states.copy()
+    noisy_states[:, 0] = noisy_meas[:, 0]
+    noisy_states[:, 2] = noisy_meas[:, 1]
 
     plot_pid_performance(t, theta_error)
-    animate_with_kalman(t, true_states, filtered_states)
+    animate_with_kalman(t, noisy_states, filtered_states, controls, disturbances)
+    
     return t, true_states, noisy_meas, filtered_states, controls, theta_error
 
 def kalman_demo_LQR(params, z0):
@@ -160,7 +174,7 @@ def kalman_demo_LQR(params, z0):
         x_for_lqr = kf.x.copy()
         x_for_lqr[2] = wrap_angle(x_for_lqr[2])
 
-        # LQR control - NO extra negative sign here!
+        # LQR control
         u = lqr.compute_control(x_for_lqr, x_ref)
         controls[i] = u
 
@@ -171,12 +185,15 @@ def kalman_demo_LQR(params, z0):
         # Propagate nonlinear system
         z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
 
-    # Angle error for plotting
-    theta_true = true_states[:, 2]
-    theta_wrapped = np.array([wrap_angle(th) for th in theta_true])
+    # Create reconstructed "noisy states" for visualization
+    noisy_states = true_states.copy()
+    noisy_states[:, 0] = noisy_meas[:, 0]  # noisy position
+    noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
     
-    # Plot angle error from upright (0 deg)
+    # Plot comparison
     plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=np.zeros(4))
-    animate_with_kalman(t, true_states, filtered_states)
+    
+    # Animate: LEFT = noisy measurements, RIGHT = filtered estimate
+    animate_with_kalman(t, noisy_states, filtered_states)
 
     return t, true_states, noisy_meas, filtered_states, controls

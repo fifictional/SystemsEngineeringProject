@@ -66,7 +66,7 @@ def linearised_state_space(p):
         [(I + m*l**2)/denom],  
         [0],
         [-m*l/denom] 
-    ])])
+    ])
 
     return A, B
 

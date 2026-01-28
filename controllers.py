@@ -34,7 +34,7 @@ class LQRController:
         return u
 
 class PID_controller:
-    def __init__(self, Kp, Ki, Kd, N=10):
+    def __init__(self, Kp, Ki, Kd, N=10, integral_limit=None):
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
@@ -42,19 +42,29 @@ class PID_controller:
         self.prev_error = 0
         self.d_filt = 0
         self.N = N
+        self.prev_measurement = None
+        self.integral_limit = integral_limit
 
     def step(self, setpoint, measurement, dt):    
         error = setpoint - measurement
 
         self.integral += error * dt
+        
+        if self.integral_limit is not None:
+            self.integral = np.clip(self.integral, -self.integral_limit, self.integral_limit)
 
+        if self.prev_measurement is not None:
+            de_dt = -(measurement - self.prev_measurement) / dt
+        else:
+            de_dt = 0
+            
         Tf = 1 / self.N
         alpha = Tf / (Tf + dt)
-        de_dt = (error - self.prev_error) / dt
         self.d_filt = alpha * self.d_filt + (1 - alpha) * de_dt
 
         output = self.Kp * error + self.Ki * self.integral + self.Kd * self.d_filt
+        
         self.prev_error = error
+        self.prev_measurement = measurement
 
         return output
-

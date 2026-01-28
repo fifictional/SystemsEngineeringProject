@@ -147,51 +147,61 @@ class Sensor:
         return alpha*measurement + (1-alpha) * prev_filtered
     
 
+
+
 class KalmanFilter:
     def __init__(self, dt=0.01):
         self.dt = dt
         self.model = LinearisedPendulumModel(dt)
-        self.x = np.array([0, 0, np.pi, 0]) # state
-        self.P = np.diag([0.1, 0.5, 0.05, 0.2]) # initial covariance matrix
-        self.Q = np.diag([0.001, 0.01, 0.0005, 0.005]) # process noise covariance - TO TUNE
-        self.R = np.diag([0.005**2, 0.01**2]) # measurement noise
-        self.H = np.array([[1,0,0,0], [0,0,1,0]])  # measurement matrix, x and theta
-
-        # history
+        self.x = np.array([0, 0, np.pi, 0])  # state
+        self.P = np.diag([0.2, 0.15, 0.01, 0.1])  #  initial uncertainty
+        self.Q = np.diag([1e-6, 1e-6, 1e-6, 1e-5])
+        position_std = 0.005 
+        angle_std = 0.02      
+        self.R = np.diag([position_std**2, angle_std**2])
+        self.H = np.array([[1,0,0,0], [0,0,1,0]])
         self.state_history = []
         self.cov_history = []
 
     def predict(self, u=0):
-        # prediction step using linearised dynamics
         F = self.model.compute_jacobian_F(self.x, u)
-        # discretise Jacobian (first-order approximation)
         F_discrete = np.eye(4) + F * self.dt
-        # predict state using nonlinear dynamics
+        
+        # Predict state
         f = self.model.nonlinear_dynamics(self.x, u)
         self.x = self.x + f * self.dt
-        # predict covariance
+        
+        self.x[2] = np.arctan2(np.sin(self.x[2]), np.cos(self.x[2]))
+        
+        # Predict covariance
         self.P = F_discrete @ self.P @ F_discrete.T + self.Q
-        # store for debugging
+        
         self.state_history.append(self.x.copy())
         self.cov_history.append(np.diag(self.P).copy())
 
     def update(self, z):
-        # update step with z = [x_measured, theta_measured]
-        # innovation
+        # Innovation with angle wrapping
         y = z - self.H @ self.x
-        # innovation covariance
+        
+        y[1] = np.arctan2(np.sin(y[1]), np.cos(y[1]))
+        
+        # Innovation covariance
         S = self.H @ self.P @ self.H.T + self.R
-        # kalman gain
+        
+        # Kalman gain
         K = self.P @ self.H.T @ np.linalg.inv(S)
-        # state estimate
+        
+        # Update state
         self.x = self.x + K @ y
-        # update covariance
+        
+        # Wrap theta again after update
+        self.x[2] = np.arctan2(np.sin(self.x[2]), np.cos(self.x[2]))
+        
         I = np.eye(4)
         self.P = (I - K @ self.H) @ self.P @ (I - K @ self.H).T + K @ self.R @ K.T
-        
+
         return self.x.copy()
+
     
     def get_estimate(self):
-        # return current state estimate with uncertainty
         return self.x.copy(), np.sqrt(np.diag(self.P))
-

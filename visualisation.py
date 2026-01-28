@@ -1,85 +1,184 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Rectangle, Circle
+from matplotlib.patches import Rectangle, Circle, FancyArrow
 import numpy as np
 
-def animate_with_kalman(t, true_states, filtered_states):
-    """Animate both true and filtered states"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Left: True state
-    ax1.set_aspect('equal')
-    ax1.set_xlim(-1, 1)
-    ax1.set_ylim(-0.5, 1.5)
-    ax1.grid(True)
-    ax1.set_title('True Pendulum (with noise in simulation)')
-    
-    # Right: Filtered state
-    ax2.set_aspect('equal')
-    ax2.set_xlim(-1, 1)
-    ax2.set_ylim(-0.5, 1.5)
-    ax2.grid(True)
-    ax2.set_title('Kalman Filter Estimate')
-    
-    # Initialize true pendulum
-    cart_true = Rectangle((-0.15, 0), 0.3, 0.15, fill=False, lw=2, color='blue')
-    ax1.add_patch(cart_true)
-    rod_true, = ax1.plot([], [], 'k-', lw=3)
-    bob_true = Circle((0, 0), 0.03, fill=True, color='red')
-    ax1.add_patch(bob_true)
-    time_text_true = ax1.text(0.02, 0.95, "", transform=ax1.transAxes)
-    
-    # Initialize filtered pendulum
-    cart_filtered = Rectangle((-0.15, 0), 0.3, 0.15, fill=False, lw=2, color='green')
-    ax2.add_patch(cart_filtered)
-    rod_filtered, = ax2.plot([], [], 'k-', lw=3)
-    bob_filtered = Circle((0, 0), 0.03, fill=True, color='orange')
-    ax2.add_patch(bob_filtered)
-    time_text_filtered = ax2.text(0.02, 0.95, "", transform=ax2.transAxes)
-    
+def animate_with_kalman(t, true_states, filtered_states,
+                        controls=None, disturbances=None):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation
+    from matplotlib.patches import Rectangle, Circle, FancyArrow
+
+    # FIGURE + GRID
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(3, 4, hspace=0.35, wspace=0.3)
+
+    ax_anim_true = fig.add_subplot(gs[0, 0:2])
+    ax_anim_filt = fig.add_subplot(gs[0, 2:4])
+    ax_info      = ax_anim_filt.inset_axes([0.7, -1.9, 0.6, 0.6])
+
+    ax_pos   = fig.add_subplot(gs[1, 0])
+    ax_angle = fig.add_subplot(gs[1, 1])
+    ax_vel   = fig.add_subplot(gs[1, 2])
+
+    # ANIMATION AXES SETUP
+    for ax, title in [(ax_anim_true, "True system"),
+                      (ax_anim_filt, "Kalman filtered")]:
+        ax.set_aspect("equal")
+        ax.set_xlim(-3, 3)
+        ax.set_ylim(-0.5, 1.5)
+        ax.grid(True, alpha=0.3)
+        ax.set_title(title, fontweight="bold")
+
+    ax_info.axis("off")
+
+    # PENDULUM GEOMETRY
+    L = 0.3
+    pivot_y = 0.15
+
+    # TRUE pendulum
+    cart_t = Rectangle((-0.15, 0), 0.3, 0.15, fc="white", ec="blue", lw=1.5)
+    rod_t, = ax_anim_true.plot([], [], "k-", lw=4)
+    bob_t = Circle((0, 0), 0.05, color="red")
+    ax_anim_true.add_patch(cart_t)
+    ax_anim_true.add_patch(bob_t)
+
+    # FILTERED pendulum
+    cart_f = Rectangle((-0.15, 0), 0.3, 0.15, fc="white", ec="green", lw=1.5)
+    rod_f, = ax_anim_filt.plot([], [], "k-", lw=4)
+    bob_f = Circle((0, 0), 0.05, color="green")
+    ax_anim_filt.add_patch(cart_f)
+    ax_anim_filt.add_patch(bob_f)
+
+    control_arrow = None
+    dist_arrow    = None
+
+    # TIME PLOTS
+    line_pos_true, = ax_pos.plot([], [], "b-",  lw=2, label="True")
+    line_pos_filt, = ax_pos.plot([], [], "g--", lw=2, label="Filtered")
+
+    line_ang_true, = ax_angle.plot([], [], "b-",  lw=2, label="True")
+    line_ang_filt, = ax_angle.plot([], [], "g--", lw=2, label="Filtered")
+
+    line_vel_true, = ax_vel.plot([], [], "b-", lw=2, label="Cart vel")
+    line_avel_true,= ax_vel.plot([], [], "r-", lw=2, label="Angular vel")
+
+    # Plot formatting
+    ax_pos.set(title="Cart position", xlabel="Time (s)", ylabel="m",
+               xlim=(0, t[-1]), ylim=(-3, 3))
+    ax_pos.grid(True, alpha=0.3)
+    ax_pos.legend()
+
+    ax_angle.set(title="Pendulum angle", xlabel="Time (s)", ylabel="deg",
+                 xlim=(0, t[-1]), ylim=(-90, 90))
+    ax_angle.grid(True, alpha=0.3)
+    ax_angle.legend()
+
+    ax_vel.set(title="Velocities", xlabel="Time (s)",
+               xlim=(0, t[-1]), ylim=(-3, 3))
+    ax_vel.grid(True, alpha=0.3)
+    ax_vel.legend()
+
+    # HELPER
+    def draw_pendulum(cart, rod, bob, state):
+        x, theta = state[0], state[2]
+        cart.set_xy((x - 0.15, 0))
+        bx = x + L*np.sin(theta)
+        by = pivot_y + L*np.cos(theta)
+        rod.set_data([x, bx], [pivot_y, by])
+        bob.center = (bx, by)
+
+    # INIT
     def init():
-        rod_true.set_data([], [])
-        bob_true.center = (0, 0.15)
-        rod_filtered.set_data([], [])
-        bob_filtered.center = (0, 0.15)
-        time_text_true.set_text("")
-        time_text_filtered.set_text("")
-        return rod_true, bob_true, cart_true, rod_filtered, bob_filtered, cart_filtered, time_text_true, time_text_filtered
-    
+        return (line_pos_true, line_pos_filt,
+                line_ang_true, line_ang_filt,
+                line_vel_true, line_avel_true,
+                cart_t, rod_t, bob_t,
+                cart_f, rod_f, bob_f)
+
+    # UPDATE
     def update(i):
-        L = 0.3
-        pivot_y = 0.15
-        
-        # Update true pendulum
-        x_true = true_states[i, 0]
-        theta_true = true_states[i, 2]
-        cart_true.set_xy((x_true - 0.15, 0))
-        bx_true = x_true + L * np.sin(theta_true)
-        by_true = pivot_y + L * np.cos(theta_true)
-        rod_true.set_data([x_true, bx_true], [pivot_y, by_true])
-        bob_true.center = (bx_true, by_true)
-        time_text_true.set_text(f"True\nTime: {t[i]:.2f}s\nAngle: {np.rad2deg(theta_true-np.pi):.1f}°")
-        
-        # Update filtered pendulum
-        x_filtered = filtered_states[i, 0]
-        theta_filtered = filtered_states[i, 2]
-        cart_filtered.set_xy((x_filtered - 0.15, 0))
-        bx_filtered = x_filtered + L * np.sin(theta_filtered)
-        by_filtered = pivot_y + L * np.cos(theta_filtered)
-        rod_filtered.set_data([x_filtered, bx_filtered], [pivot_y, by_filtered])
-        bob_filtered.center = (bx_filtered, by_filtered)
-        time_text_filtered.set_text(f"Kalman Filter\nTime: {t[i]:.2f}s\nAngle: {np.rad2deg(theta_filtered-np.pi):.1f}°")
-        
-        return rod_true, bob_true, cart_true, rod_filtered, bob_filtered, cart_filtered, time_text_true, time_text_filtered
-    
-    # Animate every 5th frame for speed
-    step = max(1, len(t)//200)
-    ani = FuncAnimation(fig, update, frames=range(0, len(t), step),
-                        init_func=init, blit=True, interval=50)
-    
+        nonlocal control_arrow, dist_arrow
+
+        # Draw pendulums
+        draw_pendulum(cart_t, rod_t, bob_t, true_states[i])
+        draw_pendulum(cart_f, rod_f, bob_f, filtered_states[i])
+
+        # Remove old arrows
+        if control_arrow:
+            control_arrow.remove()
+            control_arrow = None
+        if dist_arrow:
+            dist_arrow.remove()
+            dist_arrow = None
+
+        x = true_states[i, 0]
+        if controls is not None and abs(controls[i])>0.1:
+            control_arrow = FancyArrow(
+                x, 0.075, 0.02*controls[i], 0,
+                width=0.05, head_width=0.1, head_length=0.1,
+                fc="red", ec="black", alpha=0.7
+            )
+            ax_anim_true.add_patch(control_arrow)
+
+        if disturbances is not None and abs(disturbances[i])>0.1:
+            dist_arrow = FancyArrow(
+                x, 0.075, 0.02*disturbances[i], 0,
+                width=0.05, head_width=0.1, head_length=0.1,
+                fc="magenta", ec="black", alpha=0.7
+            )
+            ax_anim_true.add_patch(dist_arrow)
+
+        # Yellow info box
+        ax_info.clear()
+        ax_info.axis("off")
+        theta = true_states[i, 2]
+        ax_info.text(
+            0.05, 0.95,
+            f"TIME: {t[i]:.2f} s\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"CART\n"
+            f"  x = {true_states[i,0 ]:.3f} m\n"
+            f"  ẋ = {true_states[i,1 ]:.3f} m/s\n\n"
+            f"PENDULUM\n"
+            f"  θ = {np.rad2deg(theta):.2f}°\n"
+            f"  ω = {true_states[i,3 ]:.3f} rad/s",
+            transform=ax_info.transAxes,
+            fontfamily="monospace", fontsize=10,
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.85)
+        )
+
+        # Time plots
+        line_pos_true.set_data(t[:i+1], true_states[:i+1, 0])
+        line_pos_filt.set_data(t[:i+1], filtered_states[:i+1, 0])
+
+        line_ang_true.set_data(t[:i+1],
+                               np.rad2deg(true_states[:i+1, 2]))
+        line_ang_filt.set_data(t[:i+1],
+                               np.rad2deg(filtered_states[:i+1, 2]))
+
+        line_vel_true.set_data(t[:i+1], true_states[:i+1, 1])
+        line_avel_true.set_data(t[:i+1], true_states[:i+1, 3])
+
+        return (line_pos_true, line_pos_filt,
+                line_ang_true, line_ang_filt,
+                line_vel_true, line_avel_true,
+                cart_t, rod_t, bob_t,
+                cart_f, rod_f, bob_f)
+
+    # START ANIMATION
+    step = max(1, len(t)//500)
+    ani = FuncAnimation(fig, update,
+                        frames=range(0, len(t), step),
+                        init_func=init,
+                        interval=20,
+                        blit=False)
+
     plt.tight_layout()
     plt.show()
     return ani
+
 
 def plot_kalman_results(t, true_states, noisy_measurements, filtered_states):
     """Simple plot of Kalman filter results"""
@@ -130,9 +229,7 @@ def plot_pid_performance(t, theta_error):
     plt.show()
 
 def plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=None):
-    """
-    Plot LQR performance with proper angle wrapping to avoid 360° jumps
-    """
+
     if x_ref is None:
         x_ref = np.zeros(4)
 
