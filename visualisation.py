@@ -1,12 +1,9 @@
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle, Circle, FancyArrow
-import numpy as np
 from matplotlib.widgets import Button
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Rectangle, Circle, FancyArrow
+disturbance = {"force": 0.0}
 
 def animate_with_kalman(t, true_states, filtered_states,
                         controls=None, disturbances=None,control_mode=None, params=None, z0=None):
@@ -40,9 +37,24 @@ def animate_with_kalman(t, true_states, filtered_states,
             btn_mode.label.set_text("Switch to mode: PID")
             kalman_demo_LQR(params, z0)
 
-
-
     btn_mode.on_clicked(toggle_mode)
+
+    # DISTURBANCE BUTTONS
+    ax_d1 = fig.add_axes([0.82, 0.86, 0.12, 0.04])
+    ax_d2 = fig.add_axes([0.82, 0.81, 0.12, 0.04])
+
+    btn_push = Button(ax_d1, "+1 N Disturbance")
+    btn_pull = Button(ax_d2, "-1 N Disturbance")
+
+    def apply_plus(event):
+        disturbance["force"] = 1.0
+
+    def apply_minus(event):
+        disturbance["force"] = -1.0
+
+    btn_push.on_clicked(apply_plus)
+    btn_pull.on_clicked(apply_minus)
+
 
 
     ax_pos   = fig.add_subplot(gs[1, 0])
@@ -135,83 +147,51 @@ def animate_with_kalman(t, true_states, filtered_states,
 
     # UPDATE
     def update(i):
-        nonlocal control_arrow, dist_arrow
+        # Apply disturbance if any
+        if disturbance["force"] != 0 and controls is not None:
+            controls[i] += disturbance["force"]   # add disturbance to current control
+            disturbance["force"] *= 0.98          # decay over time
 
         # Draw pendulums
         draw_pendulum(cart_t, rod_t, bob_t, true_states[i])
         draw_pendulum(cart_f, rod_f, bob_f, filtered_states[i])
 
-        # Remove old arrows
-        if control_arrow:
-            control_arrow.remove()
-            control_arrow = None
-        if dist_arrow:
-            dist_arrow.remove()
-            dist_arrow = None
-
-        x = true_states[i, 0]
-        if controls is not None and abs(controls[i])>0.1:
-            control_arrow = FancyArrow(
-                x, 0.075, 0.02*controls[i], 0,
-                width=0.05, head_width=0.1, head_length=0.1,
-                fc="red", ec="black", alpha=0.7
-            )
-            ax_anim_true.add_patch(control_arrow)
-
+        # Update control plot
         if controls is not None:
             line_control.set_data(t[:i+1], controls[:i+1])
 
-
-        if disturbances is not None and abs(disturbances[i])>0.1:
-            dist_arrow = FancyArrow(
-                x, 0.075, 0.02*disturbances[i], 0,
-                width=0.05, head_width=0.1, head_length=0.1,
-                fc="magenta", ec="black", alpha=0.7
-            )
-            ax_anim_true.add_patch(dist_arrow)
+        # Update time plots
+        line_pos_true.set_data(t[:i+1], true_states[:i+1, 0])
+        line_pos_filt.set_data(t[:i+1], filtered_states[:i+1, 0])
+        line_ang_true.set_data(t[:i+1], np.rad2deg(true_states[:i+1, 2]))
+        line_ang_filt.set_data(t[:i+1], np.rad2deg(filtered_states[:i+1, 2]))
+        line_vel_true.set_data(t[:i+1], true_states[:i+1, 1])
+        line_avel_true.set_data(t[:i+1], true_states[:i+1, 3])
 
         # Yellow info box
         ax_info.clear()
         ax_info.axis("off")
         theta = true_states[i, 2]
-
         ax_info.text(
             0.05, 0.95,
             f"TIME: {t[i]:.2f} s\n"
             f"━━━━━━━━━━━━━━\n"
-            f"CONTROL MODE\n"
-            f"  {control_mode['mode']}\n"
+            f"CONTROL MODE\n  {control_mode['mode']}\n"
             f"━━━━━━━━━━━━━━\n"
-            f"CART\n"
-            f"  x = {true_states[i,0 ]:.3f} m\n"
-            f"  ẋ = {true_states[i,1 ]:.3f} m/s\n\n"
-            f"PENDULUM\n"
-            f"  θ = {np.rad2deg(theta):.2f}°\n"
-            f"  ω = {true_states[i,3 ]:.3f} rad/s",
+            f"CART\n  x = {true_states[i,0 ]:.3f} m\n  ẋ = {true_states[i,1 ]:.3f} m/s\n\n"
+            f"PENDULUM\n  θ = {np.rad2deg(theta):.2f}°\n  ω = {true_states[i,3 ]:.3f} rad/s",
             transform=ax_info.transAxes,
             fontfamily="monospace",
             fontsize=10,
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.85)
         )
 
-
-        # Time plots
-        line_pos_true.set_data(t[:i+1], true_states[:i+1, 0])
-        line_pos_filt.set_data(t[:i+1], filtered_states[:i+1, 0])
-
-        line_ang_true.set_data(t[:i+1],
-                               np.rad2deg(true_states[:i+1, 2]))
-        line_ang_filt.set_data(t[:i+1],
-                               np.rad2deg(filtered_states[:i+1, 2]))
-
-        line_vel_true.set_data(t[:i+1], true_states[:i+1, 1])
-        line_avel_true.set_data(t[:i+1], true_states[:i+1, 3])
-
         return (line_pos_true, line_pos_filt,
                 line_ang_true, line_ang_filt,
                 line_vel_true, line_avel_true,
                 cart_t, rod_t, bob_t,
                 cart_f, rod_f, bob_f, line_control)
+
 
     # START ANIMATION
     step = max(1, len(t)//500)

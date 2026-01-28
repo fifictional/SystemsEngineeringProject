@@ -129,8 +129,18 @@ def kalman_demo_PID(params, z0):
     noisy_states[:, 0] = noisy_meas[:, 0]
     noisy_states[:, 2] = noisy_meas[:, 1]
 
-    plot_pid_performance(t, theta_error)
-    animate_with_kalman(t, noisy_states, filtered_states, controls, disturbances)
+    # plot_pid_performance(t, theta_error)
+    animate_with_kalman(
+    t,
+    noisy_states,
+    filtered_states,
+    controls=controls,
+    disturbances=None,
+    control_mode={"mode": "PID"},
+    params=params,
+    z0=z0
+)
+
     
     return t, true_states, noisy_meas, filtered_states, controls, theta_error
 
@@ -191,9 +201,19 @@ def kalman_demo_LQR(params, z0):
     noisy_states[:, 2] = noisy_meas[:, 1]  # noisy angle
     
     # Plot comparison
-    plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=np.zeros(4))
+    # plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=np.zeros(4))
     
     # Animate: LEFT = noisy measurements, RIGHT = filtered estimate
-    animate_with_kalman(t, noisy_states, filtered_states)
+    animate_with_kalman(
+    t,
+    noisy_states,
+    filtered_states,
+    controls=controls,
+    disturbances=None,
+    control_mode={"mode": "LQR"},
+    params=params,
+    z0=z0
+)
+
 
     return t, true_states, noisy_meas, filtered_states, controls
