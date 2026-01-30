@@ -238,8 +238,6 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         return 3*s**2 - 2*s**3
 
     def smoothstep_dot(s, T):
-        # derivative w.r.t time: d/dt smoothstep(t/T)
-        # smoothstep'(s) = 6s(1-s)
         return (6*s*(1-s)) / T
     
     x_target = 2.0
@@ -265,7 +263,7 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         x_for_lqr = kf.x.copy()
         x_for_lqr[2] = wrap_angle(x_for_lqr[2])
 
-        # Reference (ramp)
+        # Reference
         if ti <= T_move:
             s = ti / T_move
             x_des = x_target * smoothstep(s)
