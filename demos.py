@@ -228,13 +228,22 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
 
     # LQR setup
-    Q = np.diag([10.0, 1.0, 500.0, 5.0])
-    R = np.array([[2.0]])
+    Q = np.diag([100.0, 300.0, 500.0, 5.0])
+    R = np.array([[4.0]])
     u_max = 20
     lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
 
-    x_target = 2
-    T_ramp = 2
+    def smoothstep(s):
+        # s in [0,1]
+        return 3*s**2 - 2*s**3
+
+    def smoothstep_dot(s, T):
+        # derivative w.r.t time: d/dt smoothstep(t/T)
+        # smoothstep'(s) = 6s(1-s)
+        return (6*s*(1-s)) / T
+    
+    x_target = 2.0
+    T_move = 3.0
 
     true_states = np.zeros((len(t), 4))
     noisy_meas = np.zeros((len(t), 2))
@@ -257,8 +266,14 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         x_for_lqr[2] = wrap_angle(x_for_lqr[2])
 
         # Reference (ramp)
-        x_des = x_target * min(1.0, ti / T_ramp)
-        x_ref = np.array([x_des, 0, 0, 0])
+        if ti <= T_move:
+            s = ti / T_move
+            x_des = x_target * smoothstep(s)
+            xdot_des = x_target * smoothstep_dot(s, T_move)
+        else:
+            x_des = x_target
+            xdot_des = 0.0
+        x_ref = np.array([x_des, xdot_des, 0.0, 0.0])
 
         # Compute control
         u = lqr.compute_control(x_for_lqr, x_ref)
@@ -267,8 +282,6 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         disturbance_steps = int(0.4 / dt) 
         if i < disturbance_steps:
             u += disturbance_force
-
-
 
         controls[i] = u
 
