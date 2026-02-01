@@ -308,3 +308,363 @@ def plot_lqr_performance(t, true_states, filtered_states, controls, x_ref=None):
 
     plt.tight_layout()
     plt.show()
+
+
+# ========================
+# REAL TIME VISUALIZATION
+# ========================
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.patches import Rectangle, Circle
+from matplotlib.widgets import Slider, Button, RadioButtons
+import numpy as np
+
+def animate_realtime_control(params, z0, max_time=20.0):
+    from dynamics import nonlinear_dynamics, rk4_step
+    from kalman_filter import Sensor, KalmanFilter
+    from controllers import PID_controller, LQRController
+    
+    # Simulation settings
+    dt = 0.02  # Time step
+    L = params["l"]
+    cart_w = 0.3
+    cart_h = 0.15
+    
+    # Initialize state
+    z = np.array(z0, dtype=float)
+    t_current = 0.0
+    
+    # Initialize sensor and Kalman filter
+    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    kf = KalmanFilter(dt)
+    kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
+    
+    # Initialize controllers
+    pid = PID_controller(Kp=55, Ki=0.001, Kd=1.5, N=10)
+    Q = np.diag([10.0, 1.0, 200.0, 5.0])
+    R = np.array([[2.0]])
+    lqr = LQRController(params, Q=Q, R=R, u_max=20.0)
+    
+    # Control mode: 'PID' or 'LQR'
+    control_mode = {'current': 'PID'}
+    disturbance = {'force': 0.0, 'active': False}
+    
+    # History for plotting
+    history = {
+        't': [],
+        'x': [],
+        'theta': [],
+        'u': [],
+        'x_est': [],
+        'theta_est': []
+    }
+    fig = plt.figure(figsize=(14, 10))
+    
+    ax_anim = plt.subplot(3, 2, (1, 2))
+    ax_anim.set_xlim(-3, 3)
+    ax_anim.set_ylim(-0.3, 1.0)
+    ax_anim.set_aspect('equal', adjustable='box')
+    ax_anim.grid(True)
+    ax_anim.set_title('Cart-Pole System (Real-time)', fontsize=14, fontweight='bold')
+    
+    # Ground line
+    ax_anim.plot([-3, 3], [0, 0], 'k-', lw=2)
+    
+    # Cart
+    cart = Rectangle((z[0] - cart_w/2, 0), cart_w, cart_h, fill=True, 
+                     facecolor='steelblue', edgecolor='black', lw=2)
+    ax_anim.add_patch(cart)
+    
+    # Pendulum
+    pivot_y = cart_h
+    rod, = ax_anim.plot([], [], 'r-', lw=4)
+    bob = Circle((0, 0), 0.05, fill=True, color='darkred')
+    ax_anim.add_patch(bob)
+    
+    # Info text
+    info_text = ax_anim.text(0.02, 0.95, '', transform=ax_anim.transAxes, 
+                             fontsize=10, verticalalignment='top',
+                             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    # History plots 
+    ax_pos = plt.subplot(3, 2, 3)
+    ax_pos.set_xlabel('Time (s)')
+    ax_pos.set_ylabel('Cart Position (m)')
+    ax_pos.grid(True)
+    line_pos, = ax_pos.plot([], [], 'b-', lw=2, label='True')
+    line_pos_est, = ax_pos.plot([], [], 'g--', lw=1.5, label='Estimated')
+    ax_pos.legend()
+    ax_pos.set_xlim(0, max_time)
+    ax_pos.set_ylim(-2, 2)
+    
+    ax_angle = plt.subplot(3, 2, 4)
+    ax_angle.set_xlabel('Time (s)')
+    ax_angle.set_ylabel('Angle (deg)')
+    ax_angle.grid(True)
+    line_angle, = ax_angle.plot([], [], 'b-', lw=2, label='True')
+    line_angle_est, = ax_angle.plot([], [], 'g--', lw=1.5, label='Estimated')
+    ax_angle.legend()
+    ax_angle.set_xlim(0, max_time)
+    ax_angle.set_ylim(-30, 30)
+    
+    ax_control = plt.subplot(3, 2, 5)
+    ax_control.set_xlabel('Time (s)')
+    ax_control.set_ylabel('Control Force (N)')
+    ax_control.grid(True)
+    line_control, = ax_control.plot([], [], 'r-', lw=2)
+    ax_control.set_xlim(0, max_time)
+    ax_control.set_ylim(-25, 25)
+    
+    # Control panel 
+    ax_panel = plt.subplot(3, 2, 6)
+    ax_panel.axis('off')
+    
+    # PID Sliders
+    ax_pid_kp = plt.axes([0.60, 0.30, 0.30, 0.015])
+    ax_pid_ki = plt.axes([0.60, 0.26, 0.30, 0.015])
+    ax_pid_kd = plt.axes([0.60, 0.22, 0.30, 0.015])
+    
+    slider_pid_kp = Slider(ax_pid_kp, 'PID Kp', 0, 200, valinit=55, valstep=1)
+    slider_pid_ki = Slider(ax_pid_ki, 'PID Ki', 0, 1, valinit=0.001, valstep=0.001)
+    slider_pid_kd = Slider(ax_pid_kd, 'PID Kd', 0, 10, valinit=1.5, valstep=0.1)
+    
+    # LQR Sliders
+    ax_lqr_qpos = plt.axes([0.60, 0.30, 0.30, 0.015])
+    ax_lqr_qvel = plt.axes([0.60, 0.26, 0.30, 0.015])
+    ax_lqr_qang = plt.axes([0.60, 0.22, 0.30, 0.015])
+    ax_lqr_qangvel = plt.axes([0.60, 0.18, 0.30, 0.015])
+    ax_lqr_r = plt.axes([0.60, 0.14, 0.30, 0.015])
+    
+    slider_lqr_qpos = Slider(ax_lqr_qpos, 'Q_pos', 0, 50, valinit=10, valstep=1)
+    slider_lqr_qvel = Slider(ax_lqr_qvel, 'Q_vel', 0, 10, valinit=1, valstep=0.1)
+    slider_lqr_qang = Slider(ax_lqr_qang, 'Q_angle', 0, 500, valinit=250, valstep=5)
+    slider_lqr_qangvel = Slider(ax_lqr_qangvel, 'Q_ang_vel', 0, 20, valinit=2, valstep=0.5)
+    slider_lqr_r = Slider(ax_lqr_r, 'R', 0.1, 10, valinit=2, valstep=0.1)
+    
+    # Initially hide LQR sliders
+    ax_lqr_qpos.set_visible(False)
+    ax_lqr_qvel.set_visible(False)
+    ax_lqr_qang.set_visible(False)
+    ax_lqr_qangvel.set_visible(False)
+    ax_lqr_r.set_visible(False)
+    
+    # Store LQR parameters
+    lqr_params = {
+        'Q_pos': 10.0,
+        'Q_vel': 1.0,
+        'Q_angle': 250.0,
+        'Q_angular_vel': 2.0,
+        'R': 2.0
+    }
+    
+    # Radio buttons for controller selection
+    ax_radio = plt.axes([0.62, 0.40, 0.12, 0.10])
+    radio = RadioButtons(ax_radio, ('PID', 'LQR'), active=0)
+    
+    # Disturbance button
+    ax_button = plt.axes([0.75, 0.42, 0.12, 0.04])
+    button_dist = Button(ax_button, 'Apply Disturbance')
+    
+    # Reset button
+    ax_reset = plt.axes([0.75, 0.37, 0.12, 0.04])
+    button_reset = Button(ax_reset, 'Reset System')
+    
+    # Callback functions
+    def update_pid_params(val):
+        # pdate PID controller parameters
+        pid.Kp = slider_pid_kp.val
+        pid.Ki = slider_pid_ki.val
+        pid.Kd = slider_pid_kd.val
+        pid.integral = 0
+        print(f"PID: Kp={pid.Kp:.1f}, Ki={pid.Ki:.3f}, Kd={pid.Kd:.1f}")
+    
+    slider_pid_kp.on_changed(update_pid_params)
+    slider_pid_ki.on_changed(update_pid_params)
+    slider_pid_kd.on_changed(update_pid_params)
+    
+    def update_lqr_params(val):
+        # Update LQR controller parameters
+        lqr_params['Q_pos'] = slider_lqr_qpos.val
+        lqr_params['Q_vel'] = slider_lqr_qvel.val
+        lqr_params['Q_angle'] = slider_lqr_qang.val
+        lqr_params['Q_angular_vel'] = slider_lqr_qangvel.val
+        lqr_params['R'] = slider_lqr_r.val
+        
+        # Rebuild Q matrix
+        lqr.Q = np.diag([
+            lqr_params['Q_pos'],
+            lqr_params['Q_vel'],
+            lqr_params['Q_angle'],
+            lqr_params['Q_angular_vel']
+        ])
+        
+        # Update R matrix
+        lqr.R = np.array([[lqr_params['R']]])
+        
+        # Recompute optimal gain
+        lqr.update_gains()
+        
+        print(f"LQR: Q=[{lqr_params['Q_pos']:.1f}, {lqr_params['Q_vel']:.1f}, "
+              f"{lqr_params['Q_angle']:.1f}, {lqr_params['Q_angular_vel']:.1f}], R={lqr_params['R']:.2f}")
+    
+    slider_lqr_qpos.on_changed(update_lqr_params)
+    slider_lqr_qvel.on_changed(update_lqr_params)
+    slider_lqr_qang.on_changed(update_lqr_params)
+    slider_lqr_qangvel.on_changed(update_lqr_params)
+    slider_lqr_r.on_changed(update_lqr_params)
+    
+    def switch_controller(label):
+        """Switch between PID and LQR control"""
+        control_mode['current'] = label
+        print(f"Controller switched to: {label}")
+        
+        if label == 'PID':
+            # Show PID sliders, hide LQR sliders
+            ax_pid_kp.set_visible(True)
+            ax_pid_ki.set_visible(True)
+            ax_pid_kd.set_visible(True)
+            
+            ax_lqr_qpos.set_visible(False)
+            ax_lqr_qvel.set_visible(False)
+            ax_lqr_qang.set_visible(False)
+            ax_lqr_qangvel.set_visible(False)
+            ax_lqr_r.set_visible(False)
+            
+            pid.reset()
+            print(f"   PID mode: Kp={pid.Kp}, Ki={pid.Ki}, Kd={pid.Kd}")
+            
+        else:  # LQR
+            # Hide PID sliders, show LQR sliders
+            ax_pid_kp.set_visible(False)
+            ax_pid_ki.set_visible(False)
+            ax_pid_kd.set_visible(False)
+            
+            ax_lqr_qpos.set_visible(True)
+            ax_lqr_qvel.set_visible(True)
+            ax_lqr_qang.set_visible(True)
+            ax_lqr_qangvel.set_visible(True)
+            ax_lqr_r.set_visible(True)
+            
+            print(f" LQR mode: Q=[{lqr_params['Q_pos']}, {lqr_params['Q_vel']}, "
+                  f"{lqr_params['Q_angle']}, {lqr_params['Q_angular_vel']}], R={lqr_params['R']}")
+        
+        plt.draw()
+    
+    radio.on_clicked(switch_controller)
+    
+    def apply_disturbance(event):
+        """Apply a temporary disturbance force"""
+        disturbance['force'] = 10.0
+        disturbance['active'] = True
+        disturbance['duration'] = 0.4
+        disturbance['start_time'] = t_current
+        print(f" Disturbance: {disturbance['force']} N for {disturbance['duration']}s")
+    
+    button_dist.on_clicked(apply_disturbance)
+    
+    def reset_system(event):
+        """Reset system to initial state"""
+        nonlocal z, t_current, kf
+        z = np.array(z0, dtype=float)
+        t_current = 0.0
+        kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
+        pid.reset()
+        history['t'].clear()
+        history['x'].clear()
+        history['theta'].clear()
+        history['u'].clear()
+        history['x_est'].clear()
+        history['theta_est'].clear()
+        print("System reset to initial state")
+    
+    button_reset.on_clicked(reset_system)
+    
+    # Animation update function
+    def update(frame):
+        nonlocal z, t_current
+        
+        if t_current >= max_time:
+            return rod, bob, cart, info_text
+        
+        # Get noisy measurement
+        y = sensor.add_noise(z[[0, 2]])
+        
+        # Update Kalman filter
+        kf.update(y)
+        
+        # Compute control input based on current mode
+        if control_mode['current'] == 'PID':
+            theta_ref = 0.0
+            theta_hat = kf.x[2]
+            u = -pid.step(theta_ref, theta_hat, dt)
+        else:  # LQR
+            x_ref = np.zeros(4)
+            x_for_lqr = kf.x.copy()
+            x_for_lqr[2] = (x_for_lqr[2] + np.pi) % (2.0 * np.pi) - np.pi  # Wrap angle
+            u = lqr.compute_control(x_for_lqr, x_ref)
+        
+        # Apply disturbance if active
+        if disturbance['active']:
+            if t_current - disturbance['start_time'] < disturbance['duration']:
+                u += disturbance['force']
+            else:
+                disturbance['active'] = False
+        
+        # Predict next state (Kalman)
+        kf.predict(u=u)
+        
+        # Propagate true system dynamics
+        z = rk4_step(nonlinear_dynamics, t_current, z, dt, u, params)
+        
+        # Update history
+        history['t'].append(t_current)
+        history['x'].append(z[0])
+        history['theta'].append(np.rad2deg(z[2]))
+        history['u'].append(u)
+        history['x_est'].append(kf.x[0])
+        history['theta_est'].append(np.rad2deg(kf.x[2]))
+        
+        # Update animation elements
+        cart.set_xy((z[0] - cart_w/2, 0))
+        
+        px = z[0]
+        py = pivot_y
+        bx = px + L * np.sin(z[2])
+        by = py + L * np.cos(z[2])
+        
+        rod.set_data([px, bx], [py, by])
+        bob.center = (bx, by)
+        
+        # Update info text
+        info_text.set_text(
+            f"Time: {t_current:.2f} s\n"
+            f"Mode: {control_mode['current']}\n"
+            f"θ: {np.rad2deg(z[2]):.1f}°\n"
+            f"x: {z[0]:.2f} m\n"
+            f"u: {u:.1f} N"
+        )
+        
+        # Update history plots
+        line_pos.set_data(history['t'], history['x'])
+        line_pos_est.set_data(history['t'], history['x_est'])
+        line_angle.set_data(history['t'], history['theta'])
+        line_angle_est.set_data(history['t'], history['theta_est'])
+        line_control.set_data(history['t'], history['u'])
+        
+        # Auto-scale plots
+        if t_current > 1.0:
+            ax_pos.set_xlim(max(0, t_current - 10), t_current + 1)
+            ax_angle.set_xlim(max(0, t_current - 10), t_current + 1)
+            ax_control.set_xlim(max(0, t_current - 10), t_current + 1)
+        
+        t_current += dt
+        
+        return rod, bob, cart, info_text, line_pos, line_angle, line_control
+    
+    # Create animation (interval in ms)
+    ani = FuncAnimation(fig, update, interval=dt*1000, blit=False, cache_frame_data=False)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return ani
