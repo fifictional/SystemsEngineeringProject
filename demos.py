@@ -289,8 +289,8 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
 
     # LQR setup
-    Q = np.diag([100.0, 300.0, 500.0, 5.0])
-    R = np.array([[4.0]])
+    Q = np.diag([140.0, 400.0, 500.0, 4.1])
+    R = np.array([[3.5]])
     u_max = 20
     lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
 
