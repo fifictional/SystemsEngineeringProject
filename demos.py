@@ -141,6 +141,67 @@ def kalman_demo_PID(params, z0, disturbance_force=0.0):
         z0=z0
     )
 
+def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
+    dt = 0.02
+    tf = 10
+    t = np.arange(0, tf, dt)
+    z = np.array(z0, dtype=float)
+
+    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    kf = KalmanFilter(dt)
+    kf.x = np.array([0.05, 0, np.deg2rad(10), 0])
+
+    true_states = np.zeros((len(t), 4))
+    noisy_meas = np.zeros((len(t), 2))
+    filtered_states = np.zeros((len(t), 4))
+    controls = np.zeros(len(t))
+
+    x_target = 2
+    Kpx = 0.9
+    Kdx = 1
+    pid = PID_controller(Kp=40, Ki=0.001, Kd=2, N=10)
+
+    for i, ti in enumerate(t):
+        true_states[i] = z
+
+        y = sensor.add_noise(z[[0, 2]])
+        noisy_meas[i] = y
+        kf.update(y)
+
+        x_hat  = kf.x[0]
+        xd_hat = kf.x[1]
+
+        theta_ref = np.clip(
+            Kpx * (x_target - x_hat) - Kdx * xd_hat,
+            np.deg2rad(-15), np.deg2rad(15)
+        )
+        u = -pid.step(theta_ref, kf.x[2], dt)
+
+        # Apply disturbance at first step only
+        disturbance_steps = int(0.4 / dt) 
+        if i < disturbance_steps:
+            u += disturbance_force
+
+        controls[i] = u
+        kf.predict(u=u)
+        filtered_states[i] = kf.x
+
+        z = rk4_step(nonlinear_dynamics, ti, z, dt, u, params)
+
+    noisy_states = true_states.copy()
+    # noisy_states[:, 0] = noisy_meas[:, 0]
+    # noisy_states[:, 2] = noisy_meas[:, 1]
+
+    animate_with_kalman(
+        t,
+        noisy_states,
+        filtered_states,
+        controls=controls,
+        disturbances=None,
+        control_mode={"mode": "PID"},
+        params=params,
+        z0=z0
+    )
 
 def kalman_demo_LQR(params, z0, disturbance_force=0.0):
     dt = 0.02
