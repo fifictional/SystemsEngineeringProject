@@ -130,7 +130,7 @@ void cartISR() {
 /*********** Motor Control ***********/
 void drive(float u) {
   // Scale PID command into Motoron speed units
-  int speed = (int)(-u * U_TO_SPEED);
+  int speed = (int)(u * U_TO_SPEED);
 
   // Optional deadband compensation
   if (DEAD > 0) {
