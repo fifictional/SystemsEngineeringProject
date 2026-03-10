@@ -233,10 +233,10 @@ drive(u);
 }
 
 // Output telemetry (CSV format)
-Serial.print(x, 4); Serial.print(",");
-Serial.print(x_dot, 4); Serial.print(",");
-Serial.print(theta, 4); Serial.print(",");
-Serial.print(theta_dot, 4); Serial.print(",");
+Serial.print(x, 4); Serial.print(" ");
+Serial.print(x_dot, 4); Serial.print(" ");
+Serial.print(theta, 4); Serial.print(" ");
+Serial.print(theta_dot, 4); Serial.print(" ");
 Serial.println(u, 2);
 }
 
