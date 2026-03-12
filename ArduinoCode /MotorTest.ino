@@ -4,7 +4,7 @@
 MotoronI2C mc1(0x10); // lower motor shield: M1 - left front; M2 - right front; M3 - middle left
 
 void setup() {
-  Wire.begin();  // initialise I2C
+  Wire1.begin();  // initialise I2C
   Serial.begin(9600);
 
   // initialize motoron controller
