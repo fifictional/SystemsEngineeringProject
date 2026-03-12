@@ -63,7 +63,7 @@ void handleEncoder()
 // =====================
 void setup()
 {
-  Wire.begin();
+  Wire1.begin();
   Serial.begin(115200);
 
   mc1.setBus(&Wire);
