@@ -131,7 +131,7 @@ Serial.println("EMERGENCY STOP ACTIVATED");
 
 /*********** Setup ***********/
 void setup() {
-Wire.begin();
+Wire1.begin();
 Serial.begin(115200);
 
 Serial.println("=== Inverted Pendulum LQR Controller ===");
