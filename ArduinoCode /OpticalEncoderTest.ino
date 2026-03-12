@@ -1,5 +1,5 @@
-const int pinA = 2;    // Encoder A
-const int pinB = 3;    // Encoder B
+const int pinA = 3;    // Encoder A
+const int pinB = 5;    // Encoder B
 
 volatile long encoderPos = 0;
 volatile int lastA = 0;
