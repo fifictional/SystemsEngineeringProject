@@ -1,0 +1,285 @@
+#include <Wire.h>
+#include <Motoron.h>
+
+// =====================
+// Motoron Setup
+// =====================
+MotoronI2C mc1(0x10);
+
+// =====================
+// Encoder Pins
+// =====================
+// Pendulum encoder
+const int PEND_A = 3;
+const int PEND_B = 5;
+
+// Cart encoder
+const int CART_A = 2;
+const int CART_B = 4;
+
+// =====================
+// Encoder States
+// =====================
+volatile long pendCount = 0;
+volatile long cartCount = 0;
+
+volatile int pendLastA = 0;
+volatile int cartLastA = 0;
+
+// =====================
+// Scaling Constants
+// =====================
+// Calibrate these!
+const float PEND_COUNTS_PER_RAD = 310.7;
+const float CART_COUNTS_PER_M   = 1070.0;
+
+// =====================
+// Safety Limits
+// =====================
+const float THETA_LIMIT = 0.9;   // rad
+const float X_LIMIT     = 3.0;   // m
+const int MAX_MOTOR_SPEED = 800;
+
+// =====================
+// Targets
+// =====================
+float uprightPendCount = 0.0;    // encoder count at upright
+float targetPosition = 2.0;      // meters
+
+// =====================
+// Inner Loop: Pendulum Balance PID
+// =====================
+float Kp_theta = 180.0;
+float Ki_theta = 0.0;
+float Kd_theta = 10.0;
+
+// =====================
+// Outer Loop: Cart Position PID
+// Outputs desired pendulum angle offset
+// =====================
+float Kp_x = 1.2;
+float Ki_x = 0.0;
+float Kd_x = 0.8;
+
+// Limit requested lean angle from outer loop
+const float MAX_ANGLE_OFFSET = 0.20;   // rad (~11.5 deg)
+
+// =====================
+// Controller State
+// =====================
+float thetaIntegral = 0.0;
+float xIntegral = 0.0;
+
+float lastThetaError = 0.0;
+float lastXError = 0.0;
+
+float lastTheta = 0.0;
+float lastX = 0.0;
+
+// =====================
+// Encoder Interrupts
+// =====================
+void pendISR()
+{
+  int A = digitalRead(PEND_A);
+  int B = digitalRead(PEND_B);
+
+  if (A != pendLastA)
+  {
+    if (B != A) pendCount++;
+    else        pendCount--;
+    pendLastA = A;
+  }
+}
+
+void cartISR()
+{
+  int A = digitalRead(CART_A);
+  int B = digitalRead(CART_B);
+
+  if (A != cartLastA)
+  {
+    if (B != A) cartCount++;
+    else        cartCount--;
+    cartLastA = A;
+  }
+}
+
+// =====================
+// Helpers
+// =====================
+void stopMotors()
+{
+  mc1.setSpeed(1, 0);
+  mc1.setSpeed(2, 0);
+}
+
+void setup()
+{
+  Wire.begin();
+  Serial.begin(115200);
+
+  // =====================
+  // Motoron Initialization
+  // =====================
+  mc1.setBus(&Wire);
+  mc1.reinitialize();
+  mc1.disableCrc();
+  mc1.disableCommandTimeout();
+  mc1.clearResetFlag();
+
+  mc1.setMaxAcceleration(1, 800);
+  mc1.setMaxDeceleration(1, 800);
+  mc1.setMaxAcceleration(2, 800);
+  mc1.setMaxDeceleration(2, 800);
+
+  // =====================
+  // Encoder Initialization
+  // =====================
+  pinMode(PEND_A, INPUT_PULLUP);
+  pinMode(PEND_B, INPUT_PULLUP);
+  pinMode(CART_A, INPUT_PULLUP);
+  pinMode(CART_B, INPUT_PULLUP);
+
+  pendLastA = digitalRead(PEND_A);
+  cartLastA = digitalRead(CART_A);
+
+  attachInterrupt(digitalPinToInterrupt(PEND_A), pendISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(CART_A), cartISR, CHANGE);
+
+  // =====================
+  // Manual Upright Calibration
+  // =====================
+  Serial.println("================================");
+  Serial.println("Manual Upright Calibration Mode");
+  Serial.println("Place the pendulum upright.");
+  Serial.println("Place cart at desired zero reference if needed.");
+  Serial.println("Send 's' in Serial Monitor to start.");
+  Serial.println("================================");
+
+  while (true)
+  {
+    if (Serial.available())
+    {
+      char c = Serial.read();
+      if (c == 's') break;
+    }
+  }
+
+  noInterrupts();
+  long p0 = pendCount;
+  long x0 = cartCount;
+  interrupts();
+
+  uprightPendCount = (float)p0;
+
+  // Optional: define current cart position as 0 m at startup
+  // If you want startup point to be x = 0, uncomment next line:
+  // cartCount = 0;
+
+  lastTheta = 0.0;
+  lastX = x0 / CART_COUNTS_PER_M;
+
+  Serial.println("Calibration Complete");
+  Serial.print("Upright pendulum count: ");
+  Serial.println(uprightPendCount);
+  Serial.print("Initial cart count: ");
+  Serial.println(x0);
+  Serial.println("Starting cascade control...");
+}
+
+void loop()
+{
+  static unsigned long lastTime = 0;
+  unsigned long currentTime = micros();
+
+  if (lastTime == 0)
+  {
+    lastTime = currentTime;
+    return;
+  }
+
+  if (currentTime - lastTime >= 5000)   // 200 Hz
+  {
+    float dt = (currentTime - lastTime) * 1e-6f;
+    lastTime = currentTime;
+
+    // Atomic encoder read
+    noInterrupts();
+    long pCount = pendCount;
+    long cCount = cartCount;
+    interrupts();
+
+    // =====================
+    // Convert to physical units
+    // =====================
+    float theta = (pCount - uprightPendCount) / PEND_COUNTS_PER_RAD;  // rad, upright = 0
+    float x     = cCount / CART_COUNTS_PER_M;                         // m
+
+    float thetaDot = (theta - lastTheta) / dt;
+    float xDot     = (x - lastX) / dt;
+
+    lastTheta = theta;
+    lastX = x;
+
+    // =====================
+    // Safety checks
+    // =====================
+    if (fabs(theta) > THETA_LIMIT || fabs(x) > X_LIMIT)
+    {
+      stopMotors();
+      Serial.println("SAFETY STOP");
+      Serial.print("theta = "); Serial.print(theta);
+      Serial.print(" rad, x = "); Serial.println(x);
+      return;
+    }
+
+    // =====================
+    // OUTER LOOP:
+    // =====================
+    float xError = targetPosition - x;
+    xIntegral += xError * dt;
+    float xDerivative = (xError - lastXError) / dt;
+    lastXError = xError;
+
+    float thetaTarget =
+        Kp_x * xError +
+        Ki_x * xIntegral +
+        Kd_x * xDerivative;
+
+    thetaTarget = constrain(thetaTarget, -MAX_ANGLE_OFFSET, MAX_ANGLE_OFFSET);
+
+    // =====================
+    // INNER LOOP:
+    // pendulum angle -> motor output
+    // =====================
+    float thetaError = thetaTarget - theta;
+    thetaIntegral += thetaError * dt;
+    float thetaDerivative = (thetaError - lastThetaError) / dt;
+    lastThetaError = thetaError;
+
+    float output =
+        -(Kp_theta * thetaError +
+          Ki_theta * thetaIntegral +
+          Kd_theta * thetaDerivative);
+
+    output = constrain(output, -MAX_MOTOR_SPEED, MAX_MOTOR_SPEED);
+
+    mc1.setSpeed(1, (int)output);
+    mc1.setSpeed(2, (int)output);
+
+    // =====================
+    // Debug
+    // =====================
+    Serial.print("x: ");
+    Serial.print(x, 4);
+    Serial.print("  xErr: ");
+    Serial.print(xError, 4);
+    Serial.print("  theta: ");
+    Serial.print(theta, 4);
+    Serial.print("  thetaTarget: ");
+    Serial.print(thetaTarget, 4);
+    Serial.print("  out: ");
+    Serial.println(output);
+  }
+}
