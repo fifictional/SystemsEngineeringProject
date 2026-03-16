@@ -15,11 +15,22 @@ const int pinA = 3;
 const int pinB = 5;
 
 // =====================
+// Button Setup
+// =====================
+const int buttonPin = 10;
+
+bool motorEnabled = false;
+bool buttonState = HIGH;
+bool lastButtonReading = HIGH;
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 50;
+
+// =====================
 // PID Parameters
 // =====================
-float Kp = 200.0;
+float Kp = 65.0;
 float Ki = 0.0;
-float Kd = 0.8;
+float Kd = 1.2;
 
 // =====================
 // PID Variables
@@ -42,7 +53,7 @@ const float integralLimit = 500;
 // Timing
 // =====================
 unsigned long lastControl = 0;
-const int controlPeriod = 800;   // 1250 Hz control
+const int controlPeriod = 500;   // 1250 Hz control
 
 // =====================
 // Encoder Interrupt
@@ -63,7 +74,7 @@ void handleEncoder()
 // =====================
 void setup()
 {
-  Wire1.begin();
+  Wire.begin();
   Serial.begin(115200);
 
   mc1.setBus(&Wire);
@@ -72,19 +83,22 @@ void setup()
   mc1.disableCommandTimeout();
   mc1.clearResetFlag();
 
-  mc1.setMaxAcceleration(1, 800);
-  mc1.setMaxDeceleration(1, 800);
-  mc1.setMaxAcceleration(2, 800);
-  mc1.setMaxDeceleration(2, 800);
+  mc1.setMaxAcceleration(1, 2000);
+  mc1.setMaxDeceleration(1, 2000);
+  mc1.setMaxAcceleration(2, 2000);
+  mc1.setMaxDeceleration(2, 2000);
 
   pinMode(pinA, INPUT_PULLUP);
   pinMode(pinB, INPUT_PULLUP);
+  pinMode(buttonPin, INPUT_PULLUP);
 
   attachInterrupt(digitalPinToInterrupt(pinA), handleEncoder, CHANGE);
 
   Serial.println("================================");
   Serial.println("Immediate Upright Calibration");
   Serial.println("Place pendulum upright before power on.");
+  Serial.println("Press button once to ENABLE.");
+  Serial.println("Press again to DISABLE.");
   Serial.println("================================");
 
   targetAngle = encoderCount;
@@ -92,6 +106,7 @@ void setup()
   Serial.print("Balance Point: ");
   Serial.println(targetAngle);
 
+  lastAngle = encoderCount;
   lastControl = micros();
 }
 
@@ -100,6 +115,58 @@ void setup()
 // =====================
 void loop()
 {
+  // =====================
+  // Button Toggle with debounce
+  // =====================
+  bool reading = digitalRead(buttonPin);
+
+  if (reading != lastButtonReading)
+  {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay)
+  {
+    if (reading != buttonState)
+    {
+      buttonState = reading;
+
+      // button pressed (active LOW)
+      if (buttonState == LOW)
+      {
+        motorEnabled = !motorEnabled;
+
+        if (motorEnabled)
+        {
+          targetAngle = encoderCount;   // reset target when turning on
+          integral = 0;
+          lastError = 0;
+          lastAngle = encoderCount;
+          angleVelocity = 0;
+          Serial.println("Motors ENABLED");
+        }
+        else
+        {
+          mc1.setSpeed(1, 0);
+          mc1.setSpeed(2, 0);
+          integral = 0;
+          angleVelocity = 0;
+          Serial.println("Motors DISABLED");
+        }
+      }
+    }
+  }
+
+  lastButtonReading = reading;
+
+  // keep motors off when disabled
+  if (!motorEnabled)
+  {
+    mc1.setSpeed(1, 0);
+    mc1.setSpeed(2, 0);
+    return;
+  }
+
   if (micros() - lastControl < controlPeriod) return;
 
   unsigned long now = micros();
@@ -116,7 +183,7 @@ void loop()
 
   angleVelocity =
       velocityAlpha * angleVelocity +
-      (1 - velocityAlpha) * rawVelocity;
+      (1.0 - velocityAlpha) * rawVelocity;
 
   lastAngle = angle;
 
@@ -139,15 +206,17 @@ void loop()
 
   output = constrain(output, -800, 800);
 
-  mc1.setSpeed(1, output);
-  mc1.setSpeed(2, output);
+  mc1.setSpeed(1, (int16_t)output);
+  mc1.setSpeed(2, (int16_t)output);
 
   // Debug printing (slow)
   static int printCounter = 0;
 
   if (printCounter++ > 60)
   {
-    Serial.print("Angle: ");
+    Serial.print("Enabled: ");
+    Serial.print(motorEnabled);
+    Serial.print(" Angle: ");
     Serial.print(angle);
     Serial.print(" Vel: ");
     Serial.print(angleVelocity);
