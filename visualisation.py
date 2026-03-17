@@ -178,7 +178,7 @@ def animate_with_kalman(t, true_states, filtered_states,
             f"━━━━━━━━━━━━━━\n"
             f"CONTROL MODE\n  {control_mode['mode']}\n"
             f"━━━━━━━━━━━━━━\n"
-            f"CART\n  x = {true_states[i,0 ]:.3f} m\n  ẋ = {true_states[i,1 ]:.3f} m/s\n\n"
+            f"CART\n  x = {true_states[i,0 ]:.3f} m\n  ẋ = {true_states[i,1 ]:.3f} m/s\n\n"
             f"PENDULUM\n  θ = {np.rad2deg(theta):.2f}°\n  ω = {true_states[i,3 ]:.3f} rad/s",
             transform=ax_info.transAxes,
             fontfamily="monospace",
@@ -357,6 +357,15 @@ def animate_realtime_control(params, z0, max_time=20.0):
         'u': [],
         'x_est': [],
         'theta_est': []
+    }
+
+    settling = {
+        'target': 0.0,
+        'band': np.deg2rad(2.0),   # ±2 degrees
+        'window': 1.0,             # must stay in band for 1 second
+        'start_time': None,
+        'settled': False,
+        'settling_time': None
     }
     fig = plt.figure(figsize=(14, 10))
     
@@ -615,6 +624,20 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Propagate true system dynamics
         z = rk4_step(nonlinear_dynamics, t_current, z, dt, u, params)
+
+        # Settling detection based on pendulum angle
+        if not settling['settled']:
+            angle_error = abs(z[2] - settling['target'])
+
+            if angle_error <= settling['band']:
+                if settling['start_time'] is None:
+                    settling['start_time'] = t_current
+                elif (t_current - settling['start_time']) >= settling['window']:
+                    settling['settled'] = True
+                    settling['settling_time'] = settling['start_time']
+                    print(f"Angle settled at t = {settling['settling_time']:.2f} s", flush=True)
+            else:
+                settling['start_time'] = None
         
         # Update history
         history['t'].append(t_current)
