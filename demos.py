@@ -5,6 +5,23 @@ from visualisation import animate_with_kalman, plot_kalman_results, plot_pid_per
 import matplotlib.pyplot as plt
 from controllers import *
 
+def compute_position_settling_time(t, x, target=2.0, band=0.1, window=1.0):
+    t = np.asarray(t)
+    x = np.asarray(x)
+
+    inside = np.abs(x - target) <= band
+    dt = t[1] - t[0]
+    window_steps = max(1, int(window / dt))
+
+    for i in range(len(x) - window_steps + 1):
+        if np.all(inside[i:i + window_steps]):
+            return t[i]
+
+    idx = np.where(inside)[0]
+    if len(idx) > 0:
+        return t[idx[-1]]
+
+    return None
 
 def run_kalman_demo(params):
     dt = 0.02
@@ -130,6 +147,9 @@ def kalman_demo_PID(params, z0, disturbance_force=0.0):
     # noisy_states[:, 0] = noisy_meas[:, 0]
     # noisy_states[:, 2] = noisy_meas[:, 1]
 
+    x_settling_time = compute_settling_time(t, true_states[:, 0], y_ref=0.0, tol=0.02)
+    theta_settling_time = compute_settling_time(t, true_states[:, 2], y_ref=0.0, tol=np.deg2rad(2))
+
     animate_with_kalman(
         t,
         noisy_states,
@@ -157,9 +177,9 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
     controls = np.zeros(len(t))
 
     x_target = 2
-    Kpx = 0.9
+    Kpx = 0.4
     Kdx = 1
-    pid = PID_controller(Kp=40, Ki=0.001, Kd=2, N=10)
+    pid = PID_controller(Kp=29, Ki=0, Kd=5, N=10)
 
     for i, ti in enumerate(t):
         true_states[i] = z
@@ -173,7 +193,7 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
 
         theta_ref = np.clip(
             Kpx * (x_target - x_hat) - Kdx * xd_hat,
-            np.deg2rad(-15), np.deg2rad(15)
+            np.deg2rad(-10), np.deg2rad(10)
         )
         u = -pid.step(theta_ref, kf.x[2], dt)
 
@@ -192,6 +212,14 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
     # noisy_states[:, 0] = noisy_meas[:, 0]
     # noisy_states[:, 2] = noisy_meas[:, 1]
 
+    x_settle = compute_position_settling_time(
+        t,
+        true_states[:, 0],
+        target=x_target,
+        band=0.05,      # ±5 cm around 2 m
+        window=1.0      # must stay there for 1 second
+    )
+
     animate_with_kalman(
         t,
         noisy_states,
@@ -202,6 +230,8 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
         params=params,
         z0=z0
     )
+
+    return x_settle
 
 def kalman_demo_LQR(params, z0, disturbance_force=0.0):
     dt = 0.02
@@ -356,6 +386,14 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
     # noisy_states[:, 0] = noisy_meas[:, 0]
     # noisy_states[:, 2] = noisy_meas[:, 1]
 
+    x_settle = compute_position_settling_time(
+        t,
+        true_states[:, 0],
+        target=x_target,
+        band=0.05,      # ±5 cm around 2 m
+        window=1.0      # must stay there for 1 second
+    )
+
     # Animate
     animate_with_kalman(
         t,
@@ -367,3 +405,5 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         params=params,
         z0=z0
     )
+
+    return x_settle
