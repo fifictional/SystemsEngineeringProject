@@ -340,7 +340,8 @@ def animate_realtime_control(params, z0, max_time=20.0):
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
     
     # Initialize controllers
-    pid = PID_controller(Kp=55, Ki=0.001, Kd=1.5, N=10)
+    # Inner-loop PID tracks a tilt reference (theta_ref) for stability + motion.
+    pid = PID_controller(Kp=70, Ki=0.02, Kd=3.0, N=10)
     Q = np.diag([10.0, 1.0, 200.0, 5.0])
     R = np.array([[2.0]])
     lqr = LQRController(params, Q=Q, R=R, u_max=20.0)
@@ -348,6 +349,33 @@ def animate_realtime_control(params, z0, max_time=20.0):
     # Control mode: 'PID' or 'LQR'
     control_mode = {'current': 'PID'}
     disturbance = {'force': 0.0, 'active': False}
+
+    # PID move-to-target outer loop (position -> theta_ref)
+    pid_move = {
+        'enabled': True,
+        'x_target': 2.0,
+        'Kpx': 1.4,
+        'Kdx': 2.2,
+        'Kix': 0.18,
+        'x_int': 0.0,
+        'x_int_max': 0.6,
+        'theta_ref_max': np.deg2rad(12.0),
+        'u_max': 25.0,
+        'theta_abort_deg': 20.0,  # if we tip too far, stop trying to move
+    }
+
+    def smoothstep(s):
+        return 3 * s**2 - 2 * s**3
+
+    def smoothstep_dot(s, T):
+        return (6 * s * (1 - s)) / T
+
+    traj = {
+        'enabled': True,
+        'T_move': 4.5,
+        't0': 0.0,
+        'x0': 0.0,
+    }
     
     # History for plotting
     history = {
@@ -569,6 +597,9 @@ def animate_realtime_control(params, z0, max_time=20.0):
         t_current = 0.0
         kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
         pid.reset()
+        pid_move['x_int'] = 0.0
+        traj['t0'] = 0.0
+        traj['x0'] = z[0]
         history['t'].clear()
         history['x'].clear()
         history['theta'].clear()
@@ -594,9 +625,48 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Compute control input based on current mode
         if control_mode['current'] == 'PID':
-            theta_ref = 0.0
+            x_hat = kf.x[0]
+            xdot_hat = kf.x[1]
             theta_hat = kf.x[2]
+
+            # Default: stabilize at upright (theta_ref=0)
+            theta_ref = 0.0
+
+            # If move is enabled, generate theta_ref from position/velocity tracking.
+            if pid_move['enabled']:
+                # Trajectory reduces overshoot vs commanding a hard step.
+                if traj['enabled']:
+                    s = np.clip((t_current - traj['t0']) / max(traj['T_move'], 1e-6), 0.0, 1.0)
+                    x_des = traj['x0'] + (pid_move['x_target'] - traj['x0']) * smoothstep(s)
+                    xdot_des = (pid_move['x_target'] - traj['x0']) * smoothstep_dot(s, traj['T_move'])
+                else:
+                    x_des = pid_move['x_target']
+                    xdot_des = 0.0
+
+                x_err = x_des - x_hat
+
+                # Safety: if we're tipped too far, stop moving and just recover balance.
+                if abs(np.rad2deg(theta_hat)) > pid_move['theta_abort_deg']:
+                    pid_move['x_int'] = 0.0
+                    theta_ref = 0.0
+                else:
+                    # Integral helps avoid "stuck at ~1m" under friction/saturation.
+                    if abs(x_err) < 0.8:
+                        pid_move['x_int'] = float(np.clip(
+                            pid_move['x_int'] + x_err * dt,
+                            -pid_move['x_int_max'],
+                            pid_move['x_int_max']
+                        ))
+
+                    theta_ref = (
+                        pid_move['Kpx'] * x_err
+                        + pid_move['Kix'] * pid_move['x_int']
+                        - pid_move['Kdx'] * (xdot_hat - xdot_des)
+                    )
+                    theta_ref = float(np.clip(theta_ref, -pid_move['theta_ref_max'], pid_move['theta_ref_max']))
+
             u = -pid.step(theta_ref, theta_hat, dt)
+            u = float(np.clip(u, -pid_move['u_max'], pid_move['u_max']))
         else:  # LQR
             x_ref = np.zeros(4)
             x_for_lqr = kf.x.copy()
@@ -641,7 +711,8 @@ def animate_realtime_control(params, z0, max_time=20.0):
             f"Mode: {control_mode['current']}\n"
             f"θ: {np.rad2deg(z[2]):.1f}°\n"
             f"x: {z[0]:.2f} m\n"
-            f"u: {u:.1f} N"
+            f"u: {u:.1f} N\n"
+            f"x_target: {pid_move['x_target']:.2f} m"
         )
         
         # Update history plots
