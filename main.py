@@ -1,4 +1,6 @@
 from demos import (
+    kalman_demo_LQR_move2m,
+    kalman_demo_PID_move2m,
     run_kalman_demo, 
     run_linear_vs_nonlinear_demo, 
     kalman_demo_PID, 
@@ -23,9 +25,11 @@ if __name__ == "__main__":
 
     # Option 1: Pre-computed demos (original)
     # run_kalman_demo(params)
-    # kalman_demo_PID(params, z0)
+    # x_settle = kalman_demo_LQR_move2m(params, z0, disturbance_force=0)
+    # print(f"LQR move 2m = {x_settle:.2f} s")
+    # x_settle = kalman_demo_PID_move2m(params, z0, disturbance_force=0)
+    # print(f"PID move 2m: x settling time = {x_settle:.2f} s")
     # t, z_nl, z_lin = run_linear_vs_nonlinear_demo(params, z0)
     
-
     # Option 2: Real-time interactive control 
     animate_realtime_control(params, z0, max_time=30.0)
