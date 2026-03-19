@@ -6,15 +6,15 @@ MotoronI2C mc1(0x10);
 
 /*********** LQR Gain Matrix ***********/
 const float K[4] = {
-  2.23606798,
-  3.81322011,
-  85.89839879,
+  -8.23606798,
+  -5.81322011,
+  55.89839879,
   12.36709747
 };
 
 /*********** Target Position ***********/
-const float x_target = 2.0;
-const float T_move   = 3.0;
+const float x_target = 0;
+const float T_move   = 10.0;
 float Ti = 0.0;
 
 /*********** Timing ***********/
@@ -52,10 +52,26 @@ const float X_LIMIT = 3;
 const int MAX_MOTOR_SPEED = 800;
 
 /*********** Motor Scaling ***********/
-const float U_TO_SPEED = 350.0;
+const float U_TO_SPEED = 400.0;
 
 /*********** DEAD ZONE ***********/
-const int DEADZONE = 200;
+const int DEADZONE_FWD = 50; // Pushing Right
+const int DEADZONE_REV = 50; // Pushing Left
+
+// ... inside your drive(float u) function:
+void drive(float u) {
+  int speed = (int)(u * U_TO_SPEED);
+  
+  if (speed > 0) {
+    speed += DEADZONE_FWD;
+  } else if (speed < 0) {
+    speed -= DEADZONE_REV;
+  }
+  
+  speed = constrain(speed, -MAX_MOTOR_SPEED, MAX_MOTOR_SPEED);
+  mc1.setSpeed(2, speed);
+  mc1.setSpeed(3, speed);
+}
 
 /*********** System State ***********/
 bool systemActive = false;
@@ -88,16 +104,6 @@ void cartISR() {
     else cartCount--;
     cartLastA = A;
   }
-}
-
-/*********** Motor Drive ***********/
-void drive(float u) {
-  int speed = (int)(u * U_TO_SPEED);
-  if (speed > 0) speed += DEADZONE;
-  else if (speed < 0) speed -= DEADZONE;
-  speed = constrain(speed, -MAX_MOTOR_SPEED, MAX_MOTOR_SPEED);
-  mc1.setSpeed(2, speed);
-  mc1.setSpeed(3, speed);
 }
 
 /*********** Stop ***********/
