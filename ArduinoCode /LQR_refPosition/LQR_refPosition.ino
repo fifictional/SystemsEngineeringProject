@@ -13,8 +13,8 @@ const float K[4] = {
 };
 
 /*********** Target Position ***********/
-const float x_target = 0;
-const float T_move   = 10.0;
+float x_target = 2;  // Default to 0, can be changed for sprint
+const float T_move   = 15.0;  // Slower movement for small angles
 float Ti = 0.0;
 
 /*********** Timing ***********/
@@ -112,6 +112,17 @@ void stopMotors() {
   mc1.setSpeed(3, 0);
 }
 
+/*********** Sprint Initialization ***********/
+void startSprint(float distance) {
+  if (systemActive && abs(theta) < 0.1 && abs(x_dot) < 0.01) {
+    x_target = distance;
+    Ti = 0.0;  // Reset trajectory timer
+    Serial.print("Starting sprint to ");
+    Serial.print(distance);
+    Serial.println(" meters");
+  }
+}
+
 /*********** Safety ***********/
 bool checkSafety() {
   if (abs(theta) > THETA_LIMIT) return false;
@@ -190,6 +201,14 @@ void loop() {
     systemActive = false;
     stopMotors();
     return;
+  }
+
+  // Check for serial command to start sprint
+  if (Serial.available()) {
+    float dist = Serial.parseFloat();
+    if (dist > 0 && dist <= 3.0) {
+      startSprint(dist);
+    }
   }
 
   Ti += dt;
