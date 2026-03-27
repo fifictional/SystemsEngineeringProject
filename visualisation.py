@@ -354,12 +354,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
     
     # Initialize controllers
     pid = PID_controller(Kp=40, Ki=0.0, Kd=4.0, N=10)
-    pid_outer = {
-        'Kpx': 0.3,
-        'Kdx': 1.8,
-        'theta_limit_deg': 3.5,
-        'u_max': 16.0
-    }
+    pid_u_max = 16.0
     lqr_params = {
         'Q_pos': 180.0,
         'Q_vel': 350.0,
@@ -431,6 +426,16 @@ def animate_realtime_control(params, z0, max_time=20.0):
     rod, = ax_anim.plot([], [], 'r-', lw=4)
     bob = Circle((0, 0), 0.05, fill=True, color='darkred')
     ax_anim.add_patch(bob)
+
+    def update_pendulum_artists(state):
+        px = state[0]
+        py = pivot_y
+        bx = px + L * np.sin(state[2])
+        by = py + L * np.cos(state[2])
+        rod.set_data([px, bx], [py, by])
+        bob.center = (bx, by)
+
+    update_pendulum_artists(z)
     
     # Info text
     info_text = ax_anim.text(0.02, 0.95, '', transform=ax_anim.transAxes, 
@@ -447,7 +452,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
     ax_pos.legend()
     ax_pos.set_xlim(0, max_time)
     ax_pos.set_ylim(-2, 2)
-    
+
     ax_angle = plt.subplot(3, 2, 4)
     ax_angle.set_xlabel('Time (s)')
     ax_angle.set_ylabel('Angle (deg)')
@@ -668,6 +673,8 @@ def animate_realtime_control(params, z0, max_time=20.0):
         disturbance['label'] = 'None'
         disturbance['target'] = 'cart'
         disturbance['torque'] = 0.0
+        cart.set_xy((z[0] - cart_w/2, 0))
+        update_pendulum_artists(z)
         print("System reset to initial state")
     
     button_reset.on_clicked(reset_system)
@@ -687,14 +694,10 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Compute control input based on current mode
         if control_mode['current'] == 'PID':
-            theta_ref = np.clip(
-                -(pid_outer['Kpx'] * kf.x[0] + pid_outer['Kdx'] * kf.x[1]),
-                -np.deg2rad(pid_outer['theta_limit_deg']),
-                np.deg2rad(pid_outer['theta_limit_deg'])
-            )
+            theta_ref = 0.0
             theta_hat = kf.x[2]
             u = -pid.step(theta_ref, theta_hat, dt)
-            u = np.clip(u, -pid_outer['u_max'], pid_outer['u_max'])
+            u = np.clip(u, -pid_u_max, pid_u_max)
         else:  # LQR
             x_ref = np.zeros(4)
             x_for_lqr = kf.x.copy()
@@ -746,14 +749,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Update animation elements
         cart.set_xy((z[0] - cart_w/2, 0))
-        
-        px = z[0]
-        py = pivot_y
-        bx = px + L * np.sin(z[2])
-        by = py + L * np.cos(z[2])
-        
-        rod.set_data([px, bx], [py, by])
-        bob.center = (bx, by)
+        update_pendulum_artists(z)
         
         # Update info text
         info_text.set_text(

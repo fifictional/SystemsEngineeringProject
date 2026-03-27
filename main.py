@@ -20,7 +20,7 @@ if __name__ == "__main__":
         "b_theta": 0.05
     }
 
-    z0 = [0, 0, np.deg2rad(40), 0]
+    z0 = [0, 0, np.deg2rad(0), 0]
 
     # Option 1: Pre-computed demos (original)
     # run_kalman_demo(params)

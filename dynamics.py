@@ -11,7 +11,7 @@ params = {
     "b_theta": 0.05  
 }
 
-def nonlinear_dynamics(t, z, u, p):
+def nonlinear_dynamics(t, z, u, p, disturbance_input=None):
     x, x_dot, theta, theta_dot = z
 
     M = p["M"]
@@ -22,14 +22,20 @@ def nonlinear_dynamics(t, z, u, p):
     b_x = p["b_x"]
     b_theta = p["b_theta"]
 
+    cart_force = 0.0
+    pendulum_torque = 0.0
+    if disturbance_input is not None:
+        cart_force = disturbance_input.get("cart_force", 0.0)
+        pendulum_torque = disturbance_input.get("pendulum_torque", 0.0)
+
     A = np.array([
         [M + m, m * l * np.cos(theta)],
         [m * l * np.cos(theta), I + m * l**2]
     ])
 
     b = np.array([
-        u - b_x * x_dot + m * l * theta_dot**2 * np.sin(theta),
-        m * g * l * np.sin(theta) - b_theta * theta_dot
+        u + cart_force - b_x * x_dot + m * l * theta_dot**2 * np.sin(theta),
+        m * g * l * np.sin(theta) - b_theta * theta_dot + pendulum_torque
     ])
 
 
@@ -92,4 +98,3 @@ def simulate(f, z0, t0, tf, dt, u, *args):
         z[:, k+1] = rk4_step(f, t[k], z[:, k], dt, u, *args)
 
     return t, z
-
