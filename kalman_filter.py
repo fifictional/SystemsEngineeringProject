@@ -122,7 +122,7 @@ class LinearisedPendulumModel:
 
 
 class Sensor:
-    def __init__(self, angle_std=0.02, pos_std=0.005):
+    def __init__(self, angle_std=0.00, pos_std=0.00):
         self.angle_std = angle_std
         self.pos_std = pos_std
 
