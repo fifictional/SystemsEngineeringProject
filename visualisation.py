@@ -7,7 +7,8 @@ disturbance_force = 0.0
 from demos import *
 
 def animate_with_kalman(t, true_states, filtered_states,
-                        controls=None, disturbances=None,control_mode=None, params=None, z0=None):
+                        controls=None, disturbances=None,control_mode=None, params=None, z0=None,
+                        auto_close_time=None, close_on_end=False):
     
     if control_mode is None:
         control_mode = {"mode": "LQR"}
@@ -186,6 +187,11 @@ def animate_with_kalman(t, true_states, filtered_states,
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.85)
         )
 
+        if close_on_end and i >= len(t) - step:
+            close_timer = fig.canvas.new_timer(interval=50)
+            close_timer.add_callback(lambda: plt.close(fig))
+            close_timer.start()
+
         return (line_pos_true, line_pos_filt,
                 line_ang_true, line_ang_filt,
                 line_vel_true, line_avel_true,
@@ -200,6 +206,11 @@ def animate_with_kalman(t, true_states, filtered_states,
                         init_func=init,
                         interval=20,
                         blit=False)
+
+    if auto_close_time is not None:
+        timer = fig.canvas.new_timer(interval=int(auto_close_time * 1000))
+        timer.add_callback(lambda: plt.close(fig))
+        timer.start()
 
     plt.tight_layout()
     plt.show()
@@ -335,19 +346,48 @@ def animate_realtime_control(params, z0, max_time=20.0):
     t_current = 0.0
     
     # Initialize sensor and Kalman filter
-    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    sensor = Sensor(pos_std=0.005, angle_std=0.025)
     kf = KalmanFilter(dt)
-    kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
+    kf.Q = np.diag([5e-7, 5e-7, 5e-7, 5e-6])
+    kf.R = np.diag([0.008**2, 0.03**2])
+    kf.x = np.array([0.0, 0.0, 0.0, 0.0])
     
     # Initialize controllers
-    pid = PID_controller(Kp=55, Ki=0.001, Kd=1.5, N=10)
-    Q = np.diag([10.0, 1.0, 200.0, 5.0])
-    R = np.array([[2.0]])
-    lqr = LQRController(params, Q=Q, R=R, u_max=20.0)
+    pid = PID_controller(Kp=40, Ki=0.0, Kd=4.0, N=10)
+    pid_outer = {
+        'Kpx': 0.3,
+        'Kdx': 1.8,
+        'theta_limit_deg': 3.5,
+        'u_max': 16.0
+    }
+    lqr_params = {
+        'Q_pos': 180.0,
+        'Q_vel': 350.0,
+        'Q_angle': 650.0,
+        'Q_angular_vel': 10.0,
+        'R': 4.0,
+        'u_max': 22.0
+    }
+    Q = np.diag([
+        lqr_params['Q_pos'],
+        lqr_params['Q_vel'],
+        lqr_params['Q_angle'],
+        lqr_params['Q_angular_vel']
+    ])
+    R = np.array([[lqr_params['R']]])
+    lqr = LQRController(params, Q=Q, R=R, u_max=lqr_params['u_max'])
     
     # Control mode: 'PID' or 'LQR'
     control_mode = {'current': 'PID'}
-    disturbance = {'force': 0.0, 'active': False}
+    disturbance = {
+        'force': 0.0,
+        'active': False,
+        'duration': 0.0,
+        'start_time': None,
+        'label': 'None',
+        'target': 'cart',
+        'torque': 0.0
+    }
     
     # History for plotting
     history = {
@@ -355,13 +395,15 @@ def animate_realtime_control(params, z0, max_time=20.0):
         'x': [],
         'theta': [],
         'u': [],
+        'disturbance': [],
         'x_est': [],
         'theta_est': []
     }
+    plot_mode = 'Disturbance'
 
     settling = {
         'target': 0.0,
-        'band': np.deg2rad(2.0),   # ±2 degrees
+        'band': np.deg2rad(3.0),   # ±3 degrees
         'window': 1.0,             # must stay in band for 1 second
         'start_time': None,
         'settled': False,
@@ -418,11 +460,11 @@ def animate_realtime_control(params, z0, max_time=20.0):
     
     ax_control = plt.subplot(3, 2, 5)
     ax_control.set_xlabel('Time (s)')
-    ax_control.set_ylabel('Control Force (N)')
+    ax_control.set_ylabel('Disturbance (N)')
     ax_control.grid(True)
     line_control, = ax_control.plot([], [], 'r-', lw=2)
     ax_control.set_xlim(0, max_time)
-    ax_control.set_ylim(-25, 25)
+    ax_control.set_ylim(-2, 2)
     
     # Control panel 
     ax_panel = plt.subplot(3, 2, 6)
@@ -432,10 +474,12 @@ def animate_realtime_control(params, z0, max_time=20.0):
     ax_pid_kp = plt.axes([0.60, 0.30, 0.30, 0.015])
     ax_pid_ki = plt.axes([0.60, 0.26, 0.30, 0.015])
     ax_pid_kd = plt.axes([0.60, 0.22, 0.30, 0.015])
+    ax_noise = plt.axes([0.60, 0.10, 0.30, 0.015])
     
-    slider_pid_kp = Slider(ax_pid_kp, 'PID Kp', 0, 200, valinit=55, valstep=1)
-    slider_pid_ki = Slider(ax_pid_ki, 'PID Ki', 0, 1, valinit=0.001, valstep=0.001)
-    slider_pid_kd = Slider(ax_pid_kd, 'PID Kd', 0, 10, valinit=1.5, valstep=0.1)
+    slider_pid_kp = Slider(ax_pid_kp, 'PID Kp', 0, 200, valinit=40, valstep=1)
+    slider_pid_ki = Slider(ax_pid_ki, 'PID Ki', 0, 1, valinit=0.0, valstep=0.001)
+    slider_pid_kd = Slider(ax_pid_kd, 'PID Kd', 0, 10, valinit=4.0, valstep=0.1)
+    slider_noise = Slider(ax_noise, 'Noise', 0.2, 3.0, valinit=1.0, valstep=0.1)
     
     # LQR Sliders
     ax_lqr_qpos = plt.axes([0.60, 0.30, 0.30, 0.015])
@@ -444,11 +488,11 @@ def animate_realtime_control(params, z0, max_time=20.0):
     ax_lqr_qangvel = plt.axes([0.60, 0.18, 0.30, 0.015])
     ax_lqr_r = plt.axes([0.60, 0.14, 0.30, 0.015])
     
-    slider_lqr_qpos = Slider(ax_lqr_qpos, 'Q_pos', 0, 50, valinit=10, valstep=1)
-    slider_lqr_qvel = Slider(ax_lqr_qvel, 'Q_vel', 0, 10, valinit=1, valstep=0.1)
-    slider_lqr_qang = Slider(ax_lqr_qang, 'Q_angle', 0, 500, valinit=250, valstep=5)
-    slider_lqr_qangvel = Slider(ax_lqr_qangvel, 'Q_ang_vel', 0, 20, valinit=2, valstep=0.5)
-    slider_lqr_r = Slider(ax_lqr_r, 'R', 0.1, 10, valinit=2, valstep=0.1)
+    slider_lqr_qpos = Slider(ax_lqr_qpos, 'Q_pos', 0, 300, valinit=lqr_params['Q_pos'], valstep=5)
+    slider_lqr_qvel = Slider(ax_lqr_qvel, 'Q_vel', 0, 600, valinit=lqr_params['Q_vel'], valstep=10)
+    slider_lqr_qang = Slider(ax_lqr_qang, 'Q_angle', 0, 1200, valinit=lqr_params['Q_angle'], valstep=10)
+    slider_lqr_qangvel = Slider(ax_lqr_qangvel, 'Q_ang_vel', 0, 40, valinit=lqr_params['Q_angular_vel'], valstep=0.5)
+    slider_lqr_r = Slider(ax_lqr_r, 'R', 0.1, 10, valinit=lqr_params['R'], valstep=0.1)
     
     # Initially hide LQR sliders
     ax_lqr_qpos.set_visible(False)
@@ -456,26 +500,26 @@ def animate_realtime_control(params, z0, max_time=20.0):
     ax_lqr_qang.set_visible(False)
     ax_lqr_qangvel.set_visible(False)
     ax_lqr_r.set_visible(False)
-    
-    # Store LQR parameters
-    lqr_params = {
-        'Q_pos': 10.0,
-        'Q_vel': 1.0,
-        'Q_angle': 250.0,
-        'Q_angular_vel': 2.0,
-        'R': 2.0
-    }
+
+    base_sensor_pos_std = 0.005
+    base_sensor_angle_std = 0.025
+    base_kf_r_pos_std = 0.008
+    base_kf_r_angle_std = 0.03
     
     # Radio buttons for controller selection
     ax_radio = plt.axes([0.62, 0.40, 0.12, 0.10])
     radio = RadioButtons(ax_radio, ('PID', 'LQR'), active=0)
     
-    # Disturbance button
-    ax_button = plt.axes([0.75, 0.42, 0.12, 0.04])
-    button_dist = Button(ax_button, 'Apply Disturbance')
+    # Disturbance buttons
+    ax_button_small_pend = plt.axes([0.60, 0.06, 0.16, 0.04])
+    ax_button_large_pend = plt.axes([0.60, 0.01, 0.16, 0.04])
+    ax_button_large_cart = plt.axes([0.78, 0.06, 0.16, 0.04])
+    button_small_pend = Button(ax_button_small_pend, 'Small Pendulum')
+    button_large_pend = Button(ax_button_large_pend, 'Large Pendulum')
+    button_large_cart = Button(ax_button_large_cart, 'Large Chassis')
     
     # Reset button
-    ax_reset = plt.axes([0.75, 0.37, 0.12, 0.04])
+    ax_reset = plt.axes([0.78, 0.01, 0.16, 0.04])
     button_reset = Button(ax_reset, 'Reset System')
     
     # Callback functions
@@ -490,6 +534,22 @@ def animate_realtime_control(params, z0, max_time=20.0):
     slider_pid_kp.on_changed(update_pid_params)
     slider_pid_ki.on_changed(update_pid_params)
     slider_pid_kd.on_changed(update_pid_params)
+
+    def update_noise_scale(val):
+        noise_scale = slider_noise.val
+        sensor.pos_std = base_sensor_pos_std * noise_scale
+        sensor.angle_std = base_sensor_angle_std * noise_scale
+        kf.R = np.diag([
+            (base_kf_r_pos_std * noise_scale)**2,
+            (base_kf_r_angle_std * noise_scale)**2
+        ])
+        print(
+            f"Noise scale={noise_scale:.1f}, "
+            f"sensor pos std={sensor.pos_std:.4f}, "
+            f"sensor angle std={sensor.angle_std:.4f}"
+        )
+
+    slider_noise.on_changed(update_noise_scale)
     
     def update_lqr_params(val):
         # Update LQR controller parameters
@@ -509,6 +569,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Update R matrix
         lqr.R = np.array([[lqr_params['R']]])
+        lqr.u_max = lqr_params['u_max']
         
         # Recompute optimal gain
         lqr.update_gains()
@@ -532,6 +593,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
             ax_pid_kp.set_visible(True)
             ax_pid_ki.set_visible(True)
             ax_pid_kd.set_visible(True)
+            ax_noise.set_visible(True)
             
             ax_lqr_qpos.set_visible(False)
             ax_lqr_qvel.set_visible(False)
@@ -547,6 +609,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
             ax_pid_kp.set_visible(False)
             ax_pid_ki.set_visible(False)
             ax_pid_kd.set_visible(False)
+            ax_noise.set_visible(True)
             
             ax_lqr_qpos.set_visible(True)
             ax_lqr_qvel.set_visible(True)
@@ -560,30 +623,51 @@ def animate_realtime_control(params, z0, max_time=20.0):
         plt.draw()
     
     radio.on_clicked(switch_controller)
-    
-    def apply_disturbance(event):
-        """Apply a temporary disturbance force"""
-        disturbance['force'] = 10.0
+
+    def set_disturbance(force, duration, label, target):
         disturbance['active'] = True
-        disturbance['duration'] = 0.4
+        disturbance['force'] = force
+        disturbance['duration'] = duration
         disturbance['start_time'] = t_current
-        print(f" Disturbance: {disturbance['force']} N for {disturbance['duration']}s")
+        disturbance['label'] = label
+        disturbance['target'] = target
+        disturbance['torque'] = force * params["l"] if target == 'pendulum' else 0.0
+        print(f"{label}: {force:.2f} for {duration:.2f}s on {target}")
+
+    def apply_small_pendulum(event):
+        set_disturbance(0.2, 0.2, "Small pendulum disturbance", "pendulum")
+
+    def apply_large_pendulum(event):
+        set_disturbance(0.5, 0.2, "Large pendulum disturbance", "pendulum")
+
+    def apply_large_chassis(event):
+        set_disturbance(0.5, 0.2, "Large chassis disturbance", "cart")
     
-    button_dist.on_clicked(apply_disturbance)
+    button_small_pend.on_clicked(apply_small_pendulum)
+    button_large_pend.on_clicked(apply_large_pendulum)
+    button_large_cart.on_clicked(apply_large_chassis)
     
     def reset_system(event):
         """Reset system to initial state"""
         nonlocal z, t_current, kf
         z = np.array(z0, dtype=float)
         t_current = 0.0
-        kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
+        kf.x = np.array([0.0, 0.0, 0.0, 0.0])
         pid.reset()
         history['t'].clear()
         history['x'].clear()
         history['theta'].clear()
         history['u'].clear()
+        history['disturbance'].clear()
         history['x_est'].clear()
         history['theta_est'].clear()
+        disturbance['active'] = False
+        disturbance['force'] = 0.0
+        disturbance['duration'] = 0.0
+        disturbance['start_time'] = None
+        disturbance['label'] = 'None'
+        disturbance['target'] = 'cart'
+        disturbance['torque'] = 0.0
         print("System reset to initial state")
     
     button_reset.on_clicked(reset_system)
@@ -603,9 +687,14 @@ def animate_realtime_control(params, z0, max_time=20.0):
         
         # Compute control input based on current mode
         if control_mode['current'] == 'PID':
-            theta_ref = 0.0
+            theta_ref = np.clip(
+                -(pid_outer['Kpx'] * kf.x[0] + pid_outer['Kdx'] * kf.x[1]),
+                -np.deg2rad(pid_outer['theta_limit_deg']),
+                np.deg2rad(pid_outer['theta_limit_deg'])
+            )
             theta_hat = kf.x[2]
             u = -pid.step(theta_ref, theta_hat, dt)
+            u = np.clip(u, -pid_outer['u_max'], pid_outer['u_max'])
         else:  # LQR
             x_ref = np.zeros(4)
             x_for_lqr = kf.x.copy()
@@ -613,9 +702,16 @@ def animate_realtime_control(params, z0, max_time=20.0):
             u = lqr.compute_control(x_for_lqr, x_ref)
         
         # Apply disturbance if active
+        disturbance_input = {"cart_force": 0.0, "pendulum_torque": 0.0}
+        disturbance_force_plot = 0.0
         if disturbance['active']:
             if t_current - disturbance['start_time'] < disturbance['duration']:
-                u += disturbance['force']
+                if disturbance['target'] == 'cart':
+                    disturbance_input["cart_force"] = disturbance['force']
+                    disturbance_force_plot = disturbance['force']
+                else:
+                    disturbance_input["pendulum_torque"] = disturbance['torque']
+                    disturbance_force_plot = disturbance['force']
             else:
                 disturbance['active'] = False
         
@@ -623,7 +719,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
         kf.predict(u=u)
         
         # Propagate true system dynamics
-        z = rk4_step(nonlinear_dynamics, t_current, z, dt, u, params)
+        z = rk4_step(nonlinear_dynamics, t_current, z, dt, u, params, disturbance_input)
 
         # Settling detection based on pendulum angle
         if not settling['settled']:
@@ -644,6 +740,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
         history['x'].append(z[0])
         history['theta'].append(np.rad2deg(z[2]))
         history['u'].append(u)
+        history['disturbance'].append(disturbance_force_plot)
         history['x_est'].append(kf.x[0])
         history['theta_est'].append(np.rad2deg(kf.x[2]))
         
@@ -662,6 +759,7 @@ def animate_realtime_control(params, z0, max_time=20.0):
         info_text.set_text(
             f"Time: {t_current:.2f} s\n"
             f"Mode: {control_mode['current']}\n"
+            f"Dist: {disturbance['label']}\n"
             f"θ: {np.rad2deg(z[2]):.1f}°\n"
             f"x: {z[0]:.2f} m\n"
             f"u: {u:.1f} N"
@@ -672,7 +770,10 @@ def animate_realtime_control(params, z0, max_time=20.0):
         line_pos_est.set_data(history['t'], history['x_est'])
         line_angle.set_data(history['t'], history['theta'])
         line_angle_est.set_data(history['t'], history['theta_est'])
-        line_control.set_data(history['t'], history['u'])
+        if plot_mode == 'Control':
+            line_control.set_data(history['t'], history['u'])
+        else:
+            line_control.set_data(history['t'], history['disturbance'])
         
         # Auto-scale plots
         if t_current > 1.0:
