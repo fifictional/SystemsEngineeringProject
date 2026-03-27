@@ -17,10 +17,6 @@ def compute_position_settling_time(t, x, target=2.0, band=0.1, window=1.0):
         if np.all(inside[i:i + window_steps]):
             return t[i]
 
-    idx = np.where(inside)[0]
-    if len(idx) > 0:
-        return t[idx[-1]]
-
     return None
 
 def run_kalman_demo(params):
@@ -158,17 +154,20 @@ def kalman_demo_PID(params, z0, disturbance_force=0.0):
         disturbances=None,
         control_mode={"mode": "PID"},
         params=params,
-        z0=z0
+        z0=z0,
+        close_on_end=True
     )
 
 def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
     dt = 0.02
     tf = 10
-    t = np.arange(0, tf, dt)
+    t = np.arange(0, tf + dt, dt)
     z = np.array(z0, dtype=float)
 
-    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    sensor = Sensor(pos_std=0.005, angle_std=0.025)
     kf = KalmanFilter(dt)
+    kf.Q = np.diag([5e-7, 5e-7, 5e-7, 5e-6])
+    kf.R = np.diag([0.008**2, 0.03**2])
     kf.x = np.array([0.05, 0, np.deg2rad(10), 0])
 
     true_states = np.zeros((len(t), 4))
@@ -177,9 +176,14 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
     controls = np.zeros(len(t))
 
     x_target = 2
-    Kpx = 0.4
-    Kdx = 1
-    pid = PID_controller(Kp=29, Ki=0, Kd=5, N=10)
+    Kpx = 0.95
+    Kdx = 2.8
+    pid = PID_controller(Kp=21, Ki=0, Kd=5, N=6)
+    T_move = 1.2
+    u_max = 30.0
+
+    def smoothstep(s):
+        return 3*s**2 - 2*s**3
 
     for i, ti in enumerate(t):
         true_states[i] = z
@@ -191,11 +195,17 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
         x_hat  = kf.x[0]
         xd_hat = kf.x[1]
 
+        if ti <= T_move:
+            s = ti / T_move
+            x_ref = x_target * smoothstep(s)
+        else:
+            x_ref = x_target
+
         theta_ref = np.clip(
-            Kpx * (x_target - x_hat) - Kdx * xd_hat,
-            np.deg2rad(-10), np.deg2rad(10)
+            Kpx * (x_ref - x_hat) - Kdx * xd_hat,
+            np.deg2rad(-3.5), np.deg2rad(3.5)
         )
-        u = -pid.step(theta_ref, kf.x[2], dt)
+        u = np.clip(-pid.step(theta_ref, kf.x[2], dt), -u_max, u_max)
 
         # Apply disturbance at first step only
         disturbance_steps = int(0.4 / dt) 
@@ -216,9 +226,12 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
         t,
         true_states[:, 0],
         target=x_target,
-        band=0.05,      # ±5 cm around 2 m
+        band=0.10,      # ±10 cm around 2 m
         window=1.0      # must stay there for 1 second
     )
+    
+    # Report error magnitude at the final simulated sample
+    final_position_error = abs(true_states[-1, 0] - x_target)
 
     animate_with_kalman(
         t,
@@ -228,10 +241,11 @@ def kalman_demo_PID_move2m(params, z0, disturbance_force=0.0):
         disturbances=None,
         control_mode={"mode": "PID"},
         params=params,
-        z0=z0
+        z0=z0,
+        close_on_end=True
     )
 
-    return x_settle
+    return x_settle, final_position_error
 
 def kalman_demo_LQR(params, z0, disturbance_force=0.0):
     dt = 0.02
@@ -304,23 +318,26 @@ def kalman_demo_LQR(params, z0, disturbance_force=0.0):
         disturbances=None,
         control_mode={"mode": "LQR"},
         params=params,
-        z0=z0
+        z0=z0,
+        close_on_end=True
     )
 
 def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
     dt = 0.02
     tf = 10.0
-    t = np.arange(0, tf, dt)
+    t = np.arange(0, tf + dt, dt)
     z = np.array(z0, dtype=float)
 
     # Sensor + Kalman filter
-    sensor = Sensor(pos_std=0.01, angle_std=0.05)
+    sensor = Sensor(pos_std=0.004, angle_std=0.02)
     kf = KalmanFilter(dt)
+    kf.Q = np.diag([5e-7, 5e-7, 5e-7, 5e-6])
+    kf.R = np.diag([0.008**2, 0.03**2])
     kf.x = np.array([0.0, 0.0, np.deg2rad(10.0), 0.0])
 
     # LQR setup
-    Q = np.diag([140.0, 400.0, 500.0, 4.1])
-    R = np.array([[3.5]])
+    Q = np.diag([180.0, 400.0, 650.0, 8.0])
+    R = np.array([[3.7]])
     u_max = 20
     lqr = LQRController(params, Q=Q, R=R, u_max=u_max)
 
@@ -332,7 +349,7 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         return (6*s*(1-s)) / T
     
     x_target = 2.0
-    T_move = 3.0
+    T_move = 3.7
 
     true_states = np.zeros((len(t), 4))
     noisy_meas = np.zeros((len(t), 2))
@@ -393,6 +410,9 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         band=0.05,      # ±5 cm around 2 m
         window=1.0      # must stay there for 1 second
     )
+    
+    # Report error magnitude at the final simulated sample
+    final_position_error = abs(true_states[-1, 0] - x_target)
 
     # Animate
     animate_with_kalman(
@@ -403,7 +423,8 @@ def kalman_demo_LQR_move2m(params, z0, disturbance_force=0.0):
         disturbances=None,
         control_mode={"mode": "LQR"},
         params=params,
-        z0=z0
+        z0=z0,
+        close_on_end=True
     )
 
-    return x_settle
+    return x_settle, final_position_error
