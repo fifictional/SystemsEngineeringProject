@@ -6,9 +6,9 @@ MotoronI2C mc1(0x10);
 
 /*********** LQR Gain Matrix ***********/
 const float K[4] = {
-  2.23606798,
-  3.81322011,
-  84.89839879,
+  -8.23606798,
+  -5.81322011,
+  55.89839879,
   12.36709747
 };
 
@@ -39,7 +39,7 @@ float x_prev = 0;
 
 /*********** Scaling ***********/
 const float PEND_COUNTS_PER_RAD = 310.7;
-const float CART_COUNTS_PER_M = 2667.0;
+const float CART_COUNTS_PER_M = 1070.0;
 
 /*********** Safety ***********/
 const float THETA_LIMIT = 0.9;
@@ -50,7 +50,7 @@ const int MAX_MOTOR_SPEED = 800;
 const float U_TO_SPEED = 350.0;
 
 /*********** DEAD ZONE ***********/
-const int DEADZONE = 150;
+const int DEADZONE = 200;
 
 /*********** System State ***********/
 bool systemActive = false;
